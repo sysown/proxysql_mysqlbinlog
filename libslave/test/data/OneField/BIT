@@ -1,0 +1,14 @@
+define, BIT(8) NOT NULL
+data, 2, 2
+data, 24, 24
+data, 120, 120
+data, 180, 180
+data, 254, 254
+
+define, BIT(24) NOT NULL
+data, 0, 0
+data, 1, 1
+data, 1000, 1000
+data, 20000, 20000
+data, 65535, 65535
+data, 100500, 100500
