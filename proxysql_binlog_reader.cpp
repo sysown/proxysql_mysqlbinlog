@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <iostream>
@@ -32,6 +33,25 @@
   ioctl(fd, FIONBIO, (char *)&ioctl_mode); \
 }
 
+void proxy_error_func(const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+};
+
+#define proxy_info(fmt, ...) \
+	do { \
+		time_t __timer; \
+		char __buffer[25]; \
+		struct tm *__tm_info; \
+		time(&__timer); \
+		__tm_info = localtime(&__timer); \
+		strftime(__buffer, 25, "%Y-%m-%d %H:%M:%S", __tm_info); \
+		proxy_error_func("%s [INFO] " fmt , __buffer , ## __VA_ARGS__); \
+	} while(0)
+
+
 unsigned int listen_port = 6020;
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
@@ -44,6 +64,7 @@ std::vector<uint64_t> trx_ids;
 
 std::string gtid_executed_to_string(slave::Position &curpos);
 
+static struct ev_loop *loop;
 
 #define NETBUFLEN 256
 volatile sig_atomic_t stopflag = 0;
@@ -231,6 +252,7 @@ class Client_Data {
 	size_t pos;
 	struct ev_io *w;
 	char uuid_server[64];
+	char *ip = NULL;
 	Client_Data(struct ev_io *_w) {
 		w = _w;
 		size = NETBUFLEN;
@@ -238,6 +260,7 @@ class Client_Data {
 		uuid_server[0] = 0;
 		pos = 0;
 		len = 0;
+		ip = strdup("unknown");
 	}
 	void resize(size_t _s) {
 		char *data_ = (char *)malloc(_s);
@@ -254,8 +277,15 @@ class Client_Data {
 		len += _s;
 	}
 	~Client_Data() {
+		if (ip) free(ip);
 		free(data);
 	}
+	void set_ip(char *a,int p) {
+		if (ip) free(ip);
+		ip = (char *)malloc(strlen(a)+16);
+		sprintf(ip,"%s:%d",a,p);
+	}
+ 
 	bool writeout() {
 		bool ret = true;
 		if (len==0) {
@@ -270,17 +300,55 @@ class Client_Data {
 				len = len-pos;
 				pos = 0;
 			}
+			int new_events = EV_READ;
+			if (len) {
+				new_events |= EV_WRITE;
+			}
+			if (new_events != w->events) {
+				ev_io_stop(EV_A_ w);
+				ev_io_set(w, w->fd, new_events);
+				ev_io_start(loop, w);
+			}
+		} else {
+			if (errno == EINTR || errno == EAGAIN) {
+				ret = true;
+			} else {
+				ret = false;
+			}
+		}
+		if (ret == false) {
+			std::vector<struct ev_io *>::iterator it;
+			it = std::find(Clients.begin(), Clients.end(), w);
+			if (it != Clients.end()) {
+				proxy_info("Remove client with FD %d\n" , w->fd);
+				Clients.erase(it);
+				ev_io_stop(loop,w);
+				close(w->fd);
+				//Client_Data *custom_data = (Client_Data *)watcher->data;
+				//delete custom_data;
+				//watcher->data = NULL;
+				//free(w);
+			}
 		}
 		return ret;
 	}
 };
 
 
+void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
+	Client_Data * custom_data = (Client_Data *)watcher->data;
+	bool rc = custom_data->writeout();
+	if (rc == false) {
+		delete custom_data;
+		free(watcher);
+	}
+}
+
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
 	it = std::find(Clients.begin(), Clients.end(), watcher);
 	if (it != Clients.end()) {
-		std::cout << "Remove client with FD " << watcher->fd << std::endl;
+		proxy_info("Remove client with FD %d\n", watcher->fd);
 		Clients.erase(it);
 	}
 	if(EV_ERROR & revents) {
@@ -299,8 +367,13 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 }
 
 void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-	struct sockaddr_in client_addr;
-	socklen_t client_len = sizeof(client_addr);
+	typedef union { 
+		struct sockaddr_in in;
+		struct sockaddr_in6 in6;
+	} custom_sockaddr;
+	custom_sockaddr client_addr;
+	memset(&client_addr, 0, sizeof(custom_sockaddr));
+	socklen_t client_len = sizeof(custom_sockaddr);
 	int client_sd;
 	struct ev_io *client = (struct ev_io*) malloc(sizeof(struct ev_io));
 	if(EV_ERROR & revents) {
@@ -317,6 +390,23 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		return;
 	}
 	Client_Data * custom_data = new Client_Data(client);
+	struct sockaddr *addr = (struct sockaddr *)&client_addr;
+	switch (addr->sa_family) {
+		case AF_INET: {
+			struct sockaddr_in *ipv4 = (struct sockaddr_in *)&client_addr;
+			char buf[INET_ADDRSTRLEN];
+			inet_ntop(addr->sa_family, &ipv4->sin_addr, buf, INET_ADDRSTRLEN);
+			custom_data->set_ip(buf, ipv4->sin_port);
+			break;
+		}
+		case AF_INET6: {
+			struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)&client_addr;
+			char buf[INET6_ADDRSTRLEN];
+			inet_ntop(addr->sa_family, &ipv6->sin6_addr, buf, INET6_ADDRSTRLEN);
+			custom_data->set_ip(buf, ipv6->sin6_port);
+			break;
+		}
+	}
 	client->data = (void *)custom_data;
 	ev_io_init(client, read_cb, client_sd, EV_READ);
 	ev_io_start(loop, client);
@@ -325,9 +415,15 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	pthread_mutex_unlock(&pos_mutex);
 	s1 = "ST=" + s1 + "\n";
 	custom_data->add_string(s1.c_str(), s1.length());
-	std::cout << "Push back client with FD " << client->fd << std::endl;
-	custom_data->writeout();
-	Clients.push_back(client);
+	bool ret = custom_data->writeout();
+	if (ret) {
+		proxy_info("Adding client with FD %d\n", client->fd);
+		Clients.push_back(client);
+	} else {
+		proxy_info("Error accepting client with FD %d\n", client->fd);	
+		delete custom_data;
+		free(client);
+	}
 }
 
 void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
@@ -347,7 +443,11 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 				custom_data->add_string(s2.c_str(),s2.length());
 			}
 		}
-		custom_data->writeout();
+		bool rc = custom_data->writeout();
+		if (rc == false) {
+			delete custom_data;
+			free(watcher);
+		}
 	}
 	for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
 		free(server_uuids.at(i));
@@ -363,13 +463,13 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	stopflag = 1;
 	sl->close_connection();
-	std::cout << " Received signal. Stopping at:" << std::endl;
+	//std::cout << " Received signal. Stopping at:" << std::endl;
 	std::string s1 = gtid_executed_to_string(curpos);
-	std::cout << s1 << std::endl;
-	ev_break (loop, EVBREAK_ALL);
+	//std::cout << s1 << std::endl;
+	proxy_info("Received signal. Stopping at: %s\n", s1.c_str());
+	ev_break(loop, EVBREAK_ALL);
 }
 
-static struct ev_loop *loop;
 class GTID_Server_Dumper {
 	private:
 	struct sockaddr_in addr;
@@ -427,7 +527,7 @@ class GTID_Server_Dumper {
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
-	std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
+	//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
 	char *str=strdup(sl->gtid_next.first.c_str());
 	server_uuids.push_back(str);	
 	trx_ids.push_back(sl->gtid_next.second);	
@@ -601,7 +701,8 @@ __start_label:
 
 		slave.setXidCallback(bench_xid_callback);
 
-		std::cout << "Initializing client..." << std::endl;
+		//std::cout << "Initializing client..." << std::endl;
+		proxy_info("Initializing client...\n");
 		slave.init();
 		// enable GTID
 		slave.enableGtid();
@@ -617,7 +718,7 @@ __start_label:
 
 		try {
 
-			std::cout << "Reading binlogs..." << std::endl;
+			proxy_info("Reading binlogs...\n");
 			slave.get_remote_binlog([&] ()
 				{
 					const slave::MasterInfo& sMasterInfo = slave.masterInfo();
@@ -638,7 +739,7 @@ __start_label:
 }
 
 finish:
-	fprintf(stderr,"Exiting...\n");
+	proxy_info("Exiting...\n");
 	daemon_retval_send(255);
 	daemon_signal_done();
 	daemon_pid_file_remove();
