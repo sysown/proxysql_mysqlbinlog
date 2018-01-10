@@ -789,6 +789,7 @@ namespace
 {
 std::string checkAlterOrCreateQuery(const std::string& str)
 {
+/*
     static const std::regex query_regex(R"(\s*(?:alter\s+table|create\s+table(?:\s+if\s+not\s+exists)?)\s+(?:`?\w+`?\.)?`?(\w+)`?(?:[^\w\.`].*$|$))",
                                         std::regex_constants::optimize | std::regex_constants::icase);
 
@@ -798,6 +799,7 @@ std::string checkAlterOrCreateQuery(const std::string& str)
     std::smatch sm;
     if (std::regex_match(s, sm, query_regex))
         return sm[1];
+*/
     return "";
 }
 }// anonymouos-namespace
