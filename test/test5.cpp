@@ -270,6 +270,14 @@ class Client_Data {
 				len = len-pos;
 				pos = 0;
 			}
+		} else {
+			int myerr = errno;
+			if (
+				(rc==0) ||
+				(rc==-1 && myerr != EINTR && myerr != EAGAIN)
+			) {
+				ret = false;
+			}
 		}
 		return ret;
 	}

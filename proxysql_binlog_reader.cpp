@@ -310,9 +310,11 @@ class Client_Data {
 				ev_io_start(loop, w);
 			}
 		} else {
-			if (errno == EINTR || errno == EAGAIN) {
-				ret = true;
-			} else {
+			int myerr = errno;
+			if (
+				(rc==0) ||
+				(rc==-1 && myerr != EINTR && myerr != EAGAIN)
+			) {
 				ret = false;
 			}
 		}
