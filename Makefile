@@ -5,6 +5,9 @@ default: proxysql_binlog_reader
 ubuntu16: binaries/proxysql_binlog_reader-ubuntu16
 .PHONY: ubuntu16
 
+debian7: binaries/proxysql_binlog_reader-debian7
+.PHONY: debian7
+
 
 proxysql_binlog_reader: proxysql_binlog_reader.cpp libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a
 	g++ -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -ggdb ./libslave/libslave.a ./libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a -I./libslave/ -I./libev/ -I./libdaemon/ -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto
@@ -30,3 +33,12 @@ binaries/proxysql_binlog_reader-ubuntu16:
 	docker exec ubuntu16_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make && cd /opt/proxysql_mysqlbinlog && make"
 	sleep 2
 	docker cp ubuntu16_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu16
+
+binaries/proxysql_binlog_reader-debian7:
+	docker stop debian7_build || true
+	docker rm debian7_build || true
+	docker create --name debian7_build renecannao/proxysql:build-debian7 bash -c "while : ; do sleep 10 ; done"
+	docker start debian7_build
+	docker exec debian7_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make ; cd /opt/proxysql_mysqlbinlog && make"
+	sleep 2
+	docker cp debian7_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-debian7
