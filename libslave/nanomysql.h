@@ -95,7 +95,7 @@ public:
         const unsigned int connect_timeout = opts.mysql_connect_timeout;
         const unsigned int read_timeout = opts.mysql_read_timeout;
         const unsigned int write_timeout = opts.mysql_write_timeout;
-        const unsigned int arg_off = 0;
+        const unsigned int arg_off = SSL_MODE_DISABLED;
         if (connect_timeout > 0)
         {
             mysql_options(connection, MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
