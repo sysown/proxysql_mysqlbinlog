@@ -120,9 +120,9 @@ public:
                      , nullptr
                      , nullptr
                      );
-    }
 */
     mysql_options(connection, MYSQL_OPT_SSL_MODE, &arg_off);
+    }
     Connection(const mysql_conn_opts& opts)
     {
         connect(opts);
