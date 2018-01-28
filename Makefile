@@ -5,6 +5,9 @@ default: proxysql_binlog_reader
 ubuntu16: binaries/proxysql_binlog_reader-ubuntu16
 .PHONY: ubuntu16
 
+ubuntu14: binaries/proxysql_binlog_reader-ubuntu14
+.PHONY: ubuntu14
+
 debian7: binaries/proxysql_binlog_reader-debian7
 .PHONY: debian7
 
@@ -33,6 +36,15 @@ binaries/proxysql_binlog_reader-ubuntu16:
 	docker exec ubuntu16_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make && cd /opt/proxysql_mysqlbinlog && make"
 	sleep 2
 	docker cp ubuntu16_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu16
+
+binaries/proxysql_binlog_reader-ubuntu14:
+	docker stop ubuntu14_build || true
+	docker rm ubuntu14_build || true
+	docker create --name ubuntu14_build renecannao/proxysql:build-ubuntu14 bash -c "while : ; do sleep 10 ; done"
+	docker start ubuntu14_build
+	docker exec ubuntu14_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make && cd /opt/proxysql_mysqlbinlog && make"
+	sleep 2
+	docker cp ubuntu14_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu14
 
 binaries/proxysql_binlog_reader-debian7:
 	docker stop debian7_build || true
