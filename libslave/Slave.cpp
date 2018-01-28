@@ -556,6 +556,17 @@ connected:
                 if (m_xid_callback)
                     m_xid_callback(event.server_id);
 
+            } else if (event.type == QUERY_EVENT) {
+
+                if (!gtid_next.first.empty())
+                    m_master_info.position.addGtid(gtid_next);
+                ext_state.setMasterPosition(m_master_info.position);
+
+                LOG_TRACE(log, "Got XID event. Using binlog pos: " << m_master_info.position);
+
+                if (m_xid_callback)
+                    m_xid_callback(event.server_id);
+
             } else  if (event.type == ROTATE_EVENT) {
 
                 slave::Rotate_event_info rei(event.buf, event.event_len);
