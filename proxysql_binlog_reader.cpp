@@ -455,7 +455,7 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 			custom_data->writeout();
 		if (rc == false) {
 			delete custom_data;
-			free(watcher);
+			free(w);
 			to_remove.push_back(w);
 		}
 	}
