@@ -321,18 +321,18 @@ class Client_Data {
 			}
 		}
 		if (ret == false) {
-			std::vector<struct ev_io *>::iterator it;
-			it = std::find(Clients.begin(), Clients.end(), w);
-			if (it != Clients.end()) {
+			//std::vector<struct ev_io *>::iterator it;
+			//it = std::find(Clients.begin(), Clients.end(), w);
+			//if (it != Clients.end()) {
 				proxy_info("Remove client with FD %d\n" , w->fd);
-				Clients.erase(it);
+			//	Clients.erase(it);
 				ev_io_stop(loop,w);
 				close(w->fd);
 				//Client_Data *custom_data = (Client_Data *)watcher->data;
 				//delete custom_data;
 				//watcher->data = NULL;
 				//free(w);
-			}
+			//}
 		}
 		return ret;
 	}
