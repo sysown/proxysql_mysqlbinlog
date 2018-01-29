@@ -450,7 +450,9 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 				custom_data->add_string(s2.c_str(),s2.length());
 			}
 		}
-		bool rc = custom_data->writeout();
+		bool rc = false;
+		if (w->active)
+			custom_data->writeout();
 		if (rc == false) {
 			delete custom_data;
 			free(watcher);
