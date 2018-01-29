@@ -597,7 +597,7 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 
 
 void usage(const char* name) {
-	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port>" << std::endl;
+	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file>" << std::endl;
 }
 
 
@@ -618,12 +618,15 @@ int main(int argc, char** argv) {
 
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:"))) {   
+	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
 			case 'u': user = optarg; break;
-			case 'p': password = optarg; break;
+			case 'p':
+				password = optarg;
+				memset(optarg,'x',strlen(optarg));
+				break;
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L' : errorstr = optarg; break;
