@@ -307,7 +307,7 @@ class Client_Data {
 				new_events |= EV_WRITE;
 			}
 			if (new_events != w->events) {
-				ev_io_stop(EV_A_ w);
+				ev_io_stop(loop, w);
 				ev_io_set(w, w->fd, new_events);
 				ev_io_start(loop, w);
 			}
@@ -365,8 +365,10 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		free(watcher);
 		return;
 	}
-	close(watcher->fd);
 	ev_io_stop(loop,watcher);
+	close(watcher->fd);
+	Client_Data *custom_data = (Client_Data *)watcher->data;
+	delete custom_data;
 	free(watcher);
 }
 
@@ -432,6 +434,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 
 void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	pthread_mutex_lock(&pos_mutex);
+	std::vector<struct ev_io *> to_remove;
 	for (std::vector<struct ev_io *>::iterator it=Clients.begin(); it!=Clients.end(); ++it) {
 		struct ev_io *w = *it;
 		Client_Data * custom_data = (Client_Data *)w->data;
@@ -451,6 +454,14 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 		if (rc == false) {
 			delete custom_data;
 			free(watcher);
+			to_remove.push_back(w);
+		}
+	}
+	for (std::vector<struct ev_io *>::iterator it=to_remove.begin(); it!=to_remove.end(); ++it) {
+		struct ev_io *w = *it;
+		std::vector<struct ev_io *>::iterator it2 = find(Clients.begin(), Clients.end(), w);
+		if (it2 != Clients.end()) {
+			Clients.erase(it2);
 		}
 	}
 	for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
