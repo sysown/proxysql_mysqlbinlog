@@ -74,6 +74,8 @@ slave::Position curpos;
 
 int pipefd[2];
 
+char last_server_uuid[256];
+uint64_t last_trxid = 0;
 
 bool foreground = false;
 
@@ -529,13 +531,20 @@ class GTID_Server_Dumper {
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
-	//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
-	char *str=strdup(sl->gtid_next.first.c_str());
-	server_uuids.push_back(str);	
-	trx_ids.push_back(sl->gtid_next.second);	
-	curpos.addGtid(sl->gtid_next);
-	pthread_mutex_unlock(&pos_mutex);
-	ev_async_send(loop, &async);
+	if (last_trxid==sl->gtid_next.second && strcmp(last_server_uuid,sl->gtid_next.first.c_str())==0) {
+		// do nothing
+		pthread_mutex_unlock(&pos_mutex);
+	} else {
+		//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
+		strcpy(last_server_uuid,sl->gtid_next.first.c_str());
+		last_trxid = sl->gtid_next.second;
+		char *str=strdup(sl->gtid_next.first.c_str());
+		server_uuids.push_back(str);
+		trx_ids.push_back(sl->gtid_next.second);
+		curpos.addGtid(sl->gtid_next);
+		pthread_mutex_unlock(&pos_mutex);
+		ev_async_send(loop, &async);
+	}
 }
 
 
