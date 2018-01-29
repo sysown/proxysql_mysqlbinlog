@@ -327,6 +327,7 @@ class Client_Data {
 				proxy_info("Remove client with FD %d\n" , w->fd);
 			//	Clients.erase(it);
 				ev_io_stop(loop,w);
+				shutdown(w->fd,SHUT_RDWR);
 				close(w->fd);
 				//Client_Data *custom_data = (Client_Data *)watcher->data;
 				//delete custom_data;
@@ -338,7 +339,7 @@ class Client_Data {
 	}
 };
 
-
+/*
 void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	Client_Data * custom_data = (Client_Data *)watcher->data;
 	bool rc = custom_data->writeout();
@@ -347,6 +348,7 @@ void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		free(watcher);
 	}
 }
+*/
 
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
@@ -358,6 +360,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	if(EV_ERROR & revents) {
 		perror("got invalid event");
 		ev_io_stop(loop,watcher);
+		shutdown(watcher->fd,SHUT_RDWR);
 		close(watcher->fd);
 		Client_Data *custom_data = (Client_Data *)watcher->data;
 		delete custom_data;
@@ -366,9 +369,11 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		return;
 	}
 	ev_io_stop(loop,watcher);
+	shutdown(watcher->fd,SHUT_RDWR);
 	close(watcher->fd);
 	Client_Data *custom_data = (Client_Data *)watcher->data;
 	delete custom_data;
+	watcher->data = NULL;
 	free(watcher);
 }
 
@@ -451,8 +456,8 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 			}
 		}
 		bool rc = false;
-		if (w->active)
-			custom_data->writeout();
+		//if (w->active)
+		rc = custom_data->writeout();
 		if (rc == false) {
 			delete custom_data;
 			to_remove.push_back(w);
