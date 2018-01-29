@@ -553,8 +553,8 @@ connected:
 
                 LOG_TRACE(log, "Got XID event. Using binlog pos: " << m_master_info.position);
 
-                if (m_xid_callback)
-                    m_xid_callback(event.server_id);
+                //if (m_xid_callback)
+                //    m_xid_callback(event.server_id);
 
             } else if (event.type == QUERY_EVENT) {
 
@@ -564,8 +564,8 @@ connected:
 
                 LOG_TRACE(log, "Got XID event. Using binlog pos: " << m_master_info.position);
 
-                if (m_xid_callback)
-                    m_xid_callback(event.server_id);
+                //if (m_xid_callback)
+                //    m_xid_callback(event.server_id);
 
             } else  if (event.type == ROTATE_EVENT) {
 
@@ -601,6 +601,8 @@ connected:
                 {
                     m_master_info.position.addGtid(gtid_next);
                     ext_state.setMasterPosition(m_master_info.position);
+                	if (m_xid_callback)
+                    	m_xid_callback(event.server_id);
                 }
                 Gtid_event_info gei(event.buf, event.event_len);
                 LOG_TRACE(log, "GTID_NEXT: sid = " << gei.m_sid << ", gno =  " << gei.m_gno);
