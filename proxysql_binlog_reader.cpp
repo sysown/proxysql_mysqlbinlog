@@ -273,7 +273,7 @@ class Client_Data {
 	}
 	void add_string(const char *_ptr, size_t _s) {
 		if (size < len + _s) {
-			resize(len + _s);
+			resize(len + _s * 10);
 		}
 		memcpy(data+len,_ptr,_s);
 		len += _s;
@@ -324,7 +324,7 @@ class Client_Data {
 			//std::vector<struct ev_io *>::iterator it;
 			//it = std::find(Clients.begin(), Clients.end(), w);
 			//if (it != Clients.end()) {
-				proxy_info("Remove client with FD %d\n" , w->fd);
+			//	proxy_info("Remove client with FD %d\n" , w->fd);
 			//	Clients.erase(it);
 				ev_io_stop(loop,w);
 				shutdown(w->fd,SHUT_RDWR);
@@ -354,7 +354,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
 	it = std::find(Clients.begin(), Clients.end(), watcher);
 	if (it != Clients.end()) {
-		proxy_info("Remove client with FD %d\n", watcher->fd);
+		//proxy_info("Remove client with FD %d\n", watcher->fd);
 		Clients.erase(it);
 	}
 	if(EV_ERROR & revents) {
@@ -400,6 +400,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		free(client);
 		return;
 	}
+	ioctl_FIONBIO(client_sd,1);
 	Client_Data * custom_data = new Client_Data(client);
 	struct sockaddr *addr = (struct sockaddr *)&client_addr;
 	switch (addr->sa_family) {
@@ -428,7 +429,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	custom_data->add_string(s1.c_str(), s1.length());
 	bool ret = custom_data->writeout();
 	if (ret) {
-		proxy_info("Adding client with FD %d\n", client->fd);
+		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
 		proxy_info("Error accepting client with FD %d\n", client->fd);	
@@ -461,6 +462,14 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 		if (rc == false) {
 			delete custom_data;
 			to_remove.push_back(w);
+		} else {
+			if (custom_data->size > 2048) {
+				ev_io_stop(loop,w);
+				shutdown(w->fd,SHUT_RDWR);
+				close(w->fd);
+				delete custom_data;
+				to_remove.push_back(w);
+			}
 		}
 	}
 	for (std::vector<struct ev_io *>::iterator it=to_remove.begin(); it!=to_remove.end(); ++it) {
@@ -519,7 +528,7 @@ class GTID_Server_Dumper {
 			exit(EXIT_FAILURE);
 		}
 		ioctl_FIONBIO(sd,1);
-		listen(sd,10);
+		listen(sd,30);
 		//struct ev_loop *my_loop = NULL;
 		my_loop = NULL;
 		my_loop = ev_loop_new (EVBACKEND_POLL | EVFLAG_NOENV);
