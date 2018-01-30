@@ -273,7 +273,7 @@ class Client_Data {
 	}
 	void add_string(const char *_ptr, size_t _s) {
 		if (size < len + _s) {
-			resize(len + ( _s < 50 ? _s * 10 : _s);
+			resize(len + ( _s < 50 ? _s * 10 : _s));
 		}
 		memcpy(data+len,_ptr,_s);
 		len += _s;
