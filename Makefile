@@ -2,6 +2,9 @@
 default: proxysql_binlog_reader
 
 
+ubuntu18: binaries/proxysql_binlog_reader-ubuntu18
+.PHONY: ubuntu18
+
 ubuntu16: binaries/proxysql_binlog_reader-ubuntu16
 .PHONY: ubuntu16
 
@@ -27,6 +30,15 @@ libdaemon/libdaemon/.libs/libdaemon.a:
 	tar -zxf libdaemon-0.14.tar.gz
 	cd libdaemon && ./configure --disable-examples
 	cd libdaemon && CC=${CC} CXX=${CXX} ${MAKE}
+
+binaries/proxysql_binlog_reader-ubuntu18:
+	docker stop ubuntu18_build || true
+	docker rm ubuntu18_build || true
+	docker create --name ubuntu18_build renecannao/proxysql:build-ubuntu18 bash -c "while : ; do sleep 10 ; done"
+	docker start ubuntu18_build
+	docker exec ubuntu18_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make && cd /opt/proxysql_mysqlbinlog && make"
+	sleep 2
+	docker cp ubuntu18_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu18
 
 binaries/proxysql_binlog_reader-ubuntu16:
 	docker stop ubuntu16_build || true
