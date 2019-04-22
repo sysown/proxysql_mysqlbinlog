@@ -596,6 +596,10 @@ connected:
             }
             else if (event.type == GTID_LOG_EVENT)
             {
+                Gtid_event_info gei(event.buf, event.event_len);
+                LOG_TRACE(log, "GTID_NEXT: sid = " << gei.m_sid << ", gno =  " << gei.m_gno);
+                gtid_next.first = gei.m_sid;
+                gtid_next.second = gei.m_gno;
                 LOG_TRACE(log, "Got GTID event.");
                 if (!gtid_next.first.empty())
                 {
@@ -604,10 +608,6 @@ connected:
                 	if (m_xid_callback)
                     	m_xid_callback(event.server_id);
                 }
-                Gtid_event_info gei(event.buf, event.event_len);
-                LOG_TRACE(log, "GTID_NEXT: sid = " << gei.m_sid << ", gno =  " << gei.m_gno);
-                gtid_next.first = gei.m_sid;
-                gtid_next.second = gei.m_gno;
             }
 
             if (process_event(event, m_rli))
@@ -1019,7 +1019,7 @@ void Slave::generateSlaveId()
 {
 
     std::set<unsigned int> server_ids;
-
+/*
     nanomysql::Connection conn(m_master_info.conn_options);
     nanomysql::Connection::result_t res;
 
@@ -1037,7 +1037,7 @@ void Slave::generateSlaveId()
 
         server_ids.insert(::strtoul(z->second.data.c_str(), NULL, 10));
     }
-
+*/
     unsigned int serveroid = ::time(NULL);
     serveroid ^= (::getpid() << 16);
 
