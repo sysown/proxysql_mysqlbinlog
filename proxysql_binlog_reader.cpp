@@ -53,6 +53,7 @@ void proxy_error_func(const char *fmt, ...) {
 
 
 unsigned int listen_port = 6020;
+char * listen_addr;
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
 
@@ -506,16 +507,18 @@ class GTID_Server_Dumper {
 	struct sockaddr_in addr;
 	int sd;
 	int port;
+	char * iface;
 	struct ev_io ev_accept;
 	struct ev_loop *my_loop;
 	struct ev_timer timer;
 	public:
-	GTID_Server_Dumper(int _port) {
+	GTID_Server_Dumper(char * _iface, int _port) {
+		iface = _iface;
 		port = _port;
 		sd = socket(PF_INET, SOCK_STREAM, 0);
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
-		addr.sin_addr.s_addr = INADDR_ANY;
+		addr.sin_addr.s_addr = iface ? inet_addr(iface) : INADDR_ANY;
 		int arg_on = 1;
 		if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *)&arg_on, sizeof(arg_on)) == -1) {
 			perror("setsocketopt()");
@@ -611,7 +614,7 @@ void usage(const char* name) {
 
 
 void * server(void *args) {
-	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_port);
+	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_addr, listen_port);
 	return NULL;
 }
 
@@ -627,7 +630,7 @@ int main(int argc, char** argv) {
 
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:i:L:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
@@ -638,6 +641,7 @@ int main(int argc, char** argv) {
 				break;
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
+			case 'i': listen_addr = optarg; break;
 			case 'L' : errorstr = optarg; break;
 			default:
 				usage(argv[0]);
