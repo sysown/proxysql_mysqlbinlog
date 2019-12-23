@@ -2,6 +2,9 @@
 default: proxysql_binlog_reader
 
 
+centos7: binaries/proxysql_binlog_reader-centos7
+.PHONY: centos7
+
 ubuntu18: binaries/proxysql_binlog_reader-ubuntu18
 .PHONY: ubuntu18
 
@@ -30,6 +33,21 @@ libdaemon/libdaemon/.libs/libdaemon.a:
 	tar -zxf libdaemon-0.14.tar.gz
 	cd libdaemon && ./configure --disable-examples
 	cd libdaemon && CC=${CC} CXX=${CXX} ${MAKE}
+
+binaries/proxysql_binlog_reader-centos7:
+	docker stop centos7_build || true
+	docker rm centos7_build || true
+	docker create --name centos7_build renecannao/proxysql:build-centos7 bash -c "while : ; do sleep 10 ; done"
+	docker start centos7_build
+	docker exec centos7_build bash -c "yum install -y nss curl libcurl libtool boost boost-devel" || true
+	docker exec centos7_build bash -c "wget --quiet http://repo.mysql.com/yum/mysql-5.7-community/el/7/x86_64//mysql-community-devel-5.7.28-1.el7.x86_64.rpm"
+	docker exec centos7_build bash -c "wget --quiet http://repo.mysql.com/yum/mysql-5.7-community/el/7/x86_64//mysql-community-libs-5.7.28-1.el7.x86_64.rpm"
+	docker exec centos7_build bash -c "wget --quiet http://repo.mysql.com/yum/mysql-5.7-community/el/7/x86_64//mysql-community-common-5.7.28-1.el7.x86_64.rpm"
+	docker exec centos7_build bash -c "rpm -ihv mysql-community-common-5.7.28-1.el7.x86_64.rpm mysql-community-devel-5.7.28-1.el7.x86_64.rpm mysql-community-libs-5.7.28-1.el7.x86_64.rpm"
+	docker exec centos7_build bash -c "wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h"
+	docker exec centos7_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make slave_a && cd /opt/proxysql_mysqlbinlog && make"
+	sleep 2
+	docker cp centos7_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-centos7
 
 binaries/proxysql_binlog_reader-ubuntu18:
 	docker stop ubuntu18_build || true
