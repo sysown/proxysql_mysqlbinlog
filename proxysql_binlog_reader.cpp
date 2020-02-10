@@ -597,7 +597,9 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 			gtid_set = gtid_set + s2;
 		}
 	}
-	gtid_set.pop_back();
+	if (!gtid_set.empty()) {
+		gtid_set.pop_back();
+	}
 	return gtid_set;
 }
 
@@ -750,6 +752,11 @@ __start_label:
 
 		curpos = slave.getLastBinlogPos();
 		std::string s1 = gtid_executed_to_string(curpos);
+		if(s1.empty()) {
+			proxy_info("Trying to read gtid_executed, empty set detected!\n");
+			error = true;
+			goto finish;
+		}
 		std::cout << s1 << std::endl;
 
 		sDefExtState.setMasterPosition(curpos);
