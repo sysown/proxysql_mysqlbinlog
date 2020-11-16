@@ -123,7 +123,7 @@ void daemonize_wait_daemon() {
 }
 
 
-bool daemonize_phase2() {
+bool daemonize_phase2(std::string cwd) {
 	int rc;
 	/* Close FDs */
 	if (daemon_close_all(-1) < 0) {
@@ -133,9 +133,9 @@ bool daemonize_phase2() {
 		return false;
 	}
 
-	rc=chdir("/tmp");
+	rc=chdir(cwd.c_str());
 	if (rc) {
-		daemon_log(LOG_ERR, "Could not chdir into datadir: %s . Error: %s", "/tmp", strerror(errno));
+		daemon_log(LOG_ERR, "Could not chdir into datadir: %s . Error: %s", cwd.c_str(), strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -223,13 +223,13 @@ bool daemonize_phase3() {
 	return true;
 }
 
-void daemonize_phase1(char *argv0, std::string pid_file) {
+void daemonize_phase1(char *argv0, std::string pid_file, std::string cwd) {
 	int rc;
 	const char *daemon_pid_file_ident=pid_file.c_str();
 	daemon_log_ident=daemon_ident_from_argv0(argv0);
-	rc=chdir("/tmp");
+	rc=chdir(cwd.c_str());
 	if (rc) {
-		daemon_log(LOG_ERR, "Could not chdir into datadir: %s . Error: %s", "/tmp", strerror(errno));
+		daemon_log(LOG_ERR, "Could not chdir into datadir: %s . Error: %s", cwd.c_str(), strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	daemon_pid_file_proc=proxysql_binlog_pid_file;
@@ -606,7 +606,7 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 
 
 void usage(const char* name) {
-	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file> -i <Pid file>" << std::endl;
+	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file> -i <Pid file> -c <current working dir>" << std::endl;
 }
 
 
@@ -621,6 +621,7 @@ int main(int argc, char** argv) {
 	std::string password;
 	std::string errorstr;
 	std::string pid_file="/tmp/proxysql_mysqlbinlog.pid";
+	std::string cwd="/tmp";
 	unsigned int port = 3306;
 
 
@@ -628,7 +629,7 @@ int main(int argc, char** argv) {
 
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:i:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:i:c:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
@@ -641,6 +642,7 @@ int main(int argc, char** argv) {
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L' : errorstr = optarg; break;
 			case 'i': pid_file = optarg; break;
+			case 'c': cwd = optarg; break;
 			default:
 				usage(argv[0]);
 				return 1;
@@ -665,7 +667,7 @@ int main(int argc, char** argv) {
 
 
 	if (foreground==false) {
-	daemonize_phase1((char *)argv[0], pid_file);
+	daemonize_phase1((char *)argv[0], pid_file, cwd);
 	if ((pid = daemon_fork()) < 0) {
 			/* Exit on error */
 			daemon_retval_done();
@@ -676,7 +678,7 @@ int main(int argc, char** argv) {
 			daemonize_wait_daemon();
 
 		} else {
-			if (daemonize_phase2()==false) {
+			if (daemonize_phase2(cwd)==false) {
 				goto finish;
 			}
 
