@@ -223,9 +223,9 @@ bool daemonize_phase3() {
 	return true;
 }
 
-void daemonize_phase1(char *argv0) {
+void daemonize_phase1(char *argv0, std::string pid_file) {
 	int rc;
-	daemon_pid_file_ident="/tmp/proxysql_mysqlbinlog.pid";
+	const char *daemon_pid_file_ident=pid_file.c_str();
 	daemon_log_ident=daemon_ident_from_argv0(argv0);
 	rc=chdir("/tmp");
 	if (rc) {
@@ -287,7 +287,7 @@ class Client_Data {
 		ip = (char *)malloc(strlen(a)+16);
 		sprintf(ip,"%s:%d",a,p);
 	}
- 
+
 	bool writeout() {
 		bool ret = true;
 		if (len==0) {
@@ -378,7 +378,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 }
 
 void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-	typedef union { 
+	typedef union {
 		struct sockaddr_in in;
 		struct sockaddr_in6 in6;
 	} custom_sockaddr;
@@ -432,7 +432,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
-		proxy_info("Error accepting client with FD %d\n", client->fd);	
+		proxy_info("Error accepting client with FD %d\n", client->fd);
 		delete custom_data;
 		free(client);
 	}
@@ -485,7 +485,7 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	}
 	server_uuids.clear();
 	trx_ids.clear();
-	
+
 	pthread_mutex_unlock(&pos_mutex);
 	return;
 }
@@ -606,7 +606,7 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 
 
 void usage(const char* name) {
-	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file>" << std::endl;
+	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file> -i <Pid file>" << std::endl;
 }
 
 
@@ -620,6 +620,7 @@ int main(int argc, char** argv) {
 	std::string user;
 	std::string password;
 	std::string errorstr;
+	std::string pid_file="/tmp/proxysql_mysqlbinlog.pid";
 	unsigned int port = 3306;
 
 
@@ -627,7 +628,7 @@ int main(int argc, char** argv) {
 
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:i:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
@@ -639,6 +640,7 @@ int main(int argc, char** argv) {
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L' : errorstr = optarg; break;
+			case 'i': pid_file = optarg; break;
 			default:
 				usage(argv[0]);
 				return 1;
@@ -663,7 +665,7 @@ int main(int argc, char** argv) {
 
 
 	if (foreground==false) {
-	daemonize_phase1((char *)argv[0]);
+	daemonize_phase1((char *)argv[0], pid_file);
 	if ((pid = daemon_fork()) < 0) {
 			/* Exit on error */
 			daemon_retval_done();
