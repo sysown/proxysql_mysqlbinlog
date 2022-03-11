@@ -580,7 +580,7 @@ bool isStopping() {
 }
 
 std::string gtid_executed_to_string(slave::Position &curpos) {
-	std::string gtid_set;
+	std::string gtid_set { "" };
 	for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
 		std::string s = it->first;
 		s.insert(8,"-");
@@ -597,7 +597,9 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 			gtid_set = gtid_set + s2;
 		}
 	}
-	gtid_set.pop_back();
+	if (gtid_set.empty() == false) {
+		gtid_set.pop_back();
+	}
 	return gtid_set;
 }
 
@@ -750,7 +752,16 @@ __start_label:
 
 		curpos = slave.getLastBinlogPos();
 		std::string s1 = gtid_executed_to_string(curpos);
-		std::cout << s1 << std::endl;
+
+		// Wait until a valid 'GTID' has been executed for requesting binlog
+		while (s1.empty() && !isStopping()) {
+			proxy_info("'Executed_Gtid_Set' found empty, retrying...\n");
+			usleep(1000 * 1000);
+
+			curpos = slave.getLastBinlogPos();
+			s1 = gtid_executed_to_string(curpos);
+		}
+		proxy_info("Last executed GTID: '%s'\n", s1.c_str());
 
 		sDefExtState.setMasterPosition(curpos);
 
