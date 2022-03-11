@@ -407,7 +407,7 @@ struct raii_mysql_connector
         }
 
         if(was_error)
-            LOG_INFO(log, "Successfully connected to " << sConnOptions.mysql_host << ":" << m_master_info.mysql_port);
+            LOG_INFO(log, "Successfully connected to " << sConnOptions.mysql_host << ":" << m_master_info.conn_options.mysql_port);
 
 
         mysql->reconnect = 1;
