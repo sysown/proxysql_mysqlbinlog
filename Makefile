@@ -85,6 +85,11 @@ binaries/proxysql_binlog_reader-ubuntu18:
 	docker create --name ubuntu18_build proxysql/packaging:build-ubuntu18 bash -c "while : ; do sleep 10 ; done"
 	docker start ubuntu18_build
 	docker exec ubuntu18_build bash -c "cd /opt; git clone https://github.com/sysown/proxysql_mysqlbinlog.git && cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make slave_a && cd /opt/proxysql_mysqlbinlog && make"
+	# Enable for allowing other replication formats (STATEMENT, MIXED) for debugging purposes
+	# #
+	# docker cp patches/slave_allow_rep_formats.patch ubuntu18_build:/opt/proxysql_mysqlbinlog
+	# docker exec ubuntu18_build bash -c "cd /opt; cd /opt/proxysql_mysqlbinlog; patch -p0 < patches/slave_allow_rep_formats.patch; cd /opt/proxysql_mysqlbinlog/libslave/ && cmake . && make slave_a && cd /opt/proxysql_mysqlbinlog && rm proxysql_binlog_reader && make"
+	# #
 	sleep 2
 	docker cp ubuntu18_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu18
 	docker exec ubuntu18_build bash -c "apt-get update && apt-get -y install ruby rubygems ruby-dev && gem install fpm && fpm -s dir -t deb -v1.0 --license GPLv3 --category 'Development/Tools' --description 'ProxySQL is a high performance, high availability, protocol aware proxy for MySQL and forks (like Percona Server and MariaDB). All the while getting the unlimited freedom that comes with a GPL license. Its development is driven by the lack of open source proxies that provide high performance.' --url 'https://proxysql.com' --vendor 'ProxySQL LLC' --debug-workspace --workdir /tmp/ --package=/opt/proxysql_mysqlbinlog/ -n proxysql-mysqlbinlog /opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/"

@@ -1,0 +1,14 @@
+diff --git libslave/Slave.cpp libslave/Slave.cpp
+index 8bfa4a4..c53348f 100644
+--- libslave/Slave.cpp
++++ libslave/Slave.cpp
+@@ -752,7 +752,8 @@ void Slave::check_master_binlog_format()
+             return;
+ 
+         } else {
+-            throw std::runtime_error("Slave::check_binlog_format(): got invalid binlog format: " + tmp);
++            return;
++            // throw std::runtime_error("Slave::check_binlog_format(): got invalid binlog format: " + tmp);
+         }
+     }
+ 
