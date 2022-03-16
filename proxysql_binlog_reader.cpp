@@ -27,6 +27,8 @@
 #include "Slave.h"
 #include "DefaultExtState.h"
 
+#define BINLOG_VERSION "1.0"
+
 #define ioctl_FIONBIO(fd, mode) \
 { \
   int ioctl_mode=mode; \
@@ -629,7 +631,7 @@ int main(int argc, char** argv) {
 
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "fh:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vfh:u:p:P:l:L:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
@@ -641,6 +643,9 @@ int main(int argc, char** argv) {
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L' : errorstr = optarg; break;
+			case 'v':
+				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
+				return 1;
 			default:
 				usage(argv[0]);
 				return 1;
@@ -737,6 +742,7 @@ __start_label:
 	masterinfo.conn_options.mysql_pass = password;
 
 	try {
+		proxy_info("proxysql_binlog_reader version %s\n", BINLOG_VERSION);
 
 		slave::DefaultExtState sDefExtState;
 		slave::Slave slave(masterinfo, sDefExtState);
