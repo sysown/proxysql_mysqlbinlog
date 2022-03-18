@@ -1,0 +1,13 @@
+--- libslave/nanomysql.h	2022-03-17 11:19:01.000000000 +0000
++++ libslave/nanomysql.h.N	2022-03-17 18:56:39.530388394 +0000
+@@ -21,6 +21,10 @@
+ #include <stdio.h>
+ #include <vector>
+ 
++#ifndef SSL_MODE_DISABLED
++#define SSL_MODE_DISABLED 1
++#endif
++
+ namespace nanomysql {
+ 
+ struct mysql_conn_opts

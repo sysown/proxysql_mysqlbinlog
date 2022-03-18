@@ -1,0 +1,15 @@
+diff --git a/libslave/dec_util.cpp b/libslave/dec_util.cpp
+index dc527cb..1213cde 100644
+--- a/libslave/dec_util.cpp
++++ b/libslave/dec_util.cpp
+@@ -3,6 +3,10 @@
+ #include <mysql/m_string.h>
+ #include <mysql/my_sys.h>
+ 
++#ifndef DBUG_ASSERT
++#define DBUG_ASSERT(A) assert(A)
++#endif
++
+ namespace slave
+ {
+ 
