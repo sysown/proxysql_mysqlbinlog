@@ -407,7 +407,7 @@ struct raii_mysql_connector
         }
 
         if(was_error)
-            LOG_INFO(log, "Successfully connected to " << sConnOptions.mysql_host << ":" << m_master_info.mysql_port);
+            LOG_INFO(log, "Successfully connected to " << sConnOptions.mysql_host << ":" << m_master_info.conn_options.mysql_port);
 
 
         mysql->reconnect = 1;
@@ -462,10 +462,22 @@ connected:
     LOG_INFO(log, "Starting from binlog_pos: " << m_master_info.position);
 
     request_dump(m_master_info.position, &mysql);
+    bool request_dump_again = false;
 
     while (!_interruptFlag()) {
 
         try {
+            if (request_dump_again) {
+                m_master_info.position = getLastBinlogPos();
+                if (m_master_info.position.gtid_executed.empty() == false) {
+                    ext_state.setMasterPosition(m_master_info.position);
+                    ext_state.saveMasterPosition();
+
+                    request_dump(m_master_info.position, &mysql);
+                }
+
+                request_dump_again = false;
+            }
 
             LOG_TRACE(log, "-- reading event --");
 
@@ -490,6 +502,8 @@ connected:
                         break;
                     case ER_MASTER_FATAL_ERROR_READING_BINLOG: // Error -- unknown binlog file.
                         LOG_ERROR(log, "Myslave: fatal error reading binlog. " <<  mysql_error(&mysql) );
+                        request_dump_again = true;
+                        usleep(1000 * 1000);
                         break;
                     case 2013: // Processing error 'Lost connection to MySQL'
                         LOG_WARNING(log, "Myslave: Error from MySQL: " << mysql_error(&mysql) );
@@ -499,6 +513,13 @@ connected:
                             LOG_INFO(log, "Interrupt flag is true, breaking loop");
                             continue;
                         }
+                        break;
+                    case ER_MALFORMED_GTID_SET_ENCODING:
+                        LOG_ERROR(log, "Myslave: Error reading packet from server: " << mysql_error(&mysql)
+                                << "; mysql_errno: " << mysql_errno(&mysql));
+                        LOG_ERROR(log, "Requesting GTID dump again...");
+                        request_dump_again = true;
+                        usleep(1000 * 1000);
                         break;
                     default:
                         LOG_ERROR(log, "Myslave: Error reading packet from server: " << mysql_error(&mysql)
