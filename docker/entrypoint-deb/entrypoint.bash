@@ -53,7 +53,7 @@ make cleanbuild
 #make cleanall
 
 echo "==> Building"
-make -j$(ncpu)
+make -j $(ncpu)
 
 echo "==> Packaging"
 cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS:1}-${IMG_NAME}
@@ -62,8 +62,12 @@ ls -l binaries/
 #apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 467B942D3A79BD29
 apt-get update
 
-apt-get -y install ruby rubygems ruby-dev
-gem install fpm
+#apt-get -y install ruby rubygems ruby-dev
+apt-get -y install ruby ruby-dev
+gem install --no-ri --no-rdoc ffi -v '1.9.14'
+#gem install --no-ri --no-rdoc git -v '1.6'
+gem install --no-ri --no-rdoc fpm -v '1.11.0'
+#gem install fpm
 
 fpm \
 	-s dir \
