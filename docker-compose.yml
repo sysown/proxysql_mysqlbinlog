@@ -4,7 +4,7 @@ services:
   mysqlbinlog:
     image: proxysql/packaging:build-${IMG_NAME}
     volumes:
-      - ./docker/entrypoint-${PKG_TYPE}/:/opt/entrypoint/
+      - ./docker/build/entrypoint-${PKG_TYPE}/:/opt/entrypoint/
       - ./:/opt/proxysql_mysqlbinlog/
     environment:
       - IMG_NAME=${IMG_NAME}
