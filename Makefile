@@ -44,7 +44,7 @@ libslave/libslave.a:
 
 
 .PHONY: build
-build: build-ubuntu14 build-ubuntu16 build-ubuntu18 build-debian9 build-debian10 build-centos7
+build: build-ubuntu14 build-ubuntu16 build-ubuntu18 build-debian9 build-debian10 build-centos7 build-centos8
 
 
 # universal distro target
