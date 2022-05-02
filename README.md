@@ -1,4 +1,4 @@
-# ProxySQL MySQl Binlog reader
+# ProxySQL - MySQL Binlog Reader
 
 MySQL Binlog reader and parser to be used with ProxySQL
 
