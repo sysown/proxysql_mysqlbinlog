@@ -2,6 +2,12 @@
 
 MySQL Binlog reader and parser to be used with ProxySQL
 
+### Requirements
+
+building requires docker.io, install as per instructions:
+
+https://docs.docker.com/engine/install/
+
 ### Building
 
 Currently supported targets are:
@@ -16,10 +22,6 @@ Currently supported targets are:
   - build-ubuntu
     - build-ubuntu16
     - build-ubuntu18
-
-building requires docker.io
-
-`apt-get install docker.io`
 
 to build do:
 ```
