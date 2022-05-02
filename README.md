@@ -26,7 +26,7 @@ Currently supported targets are:
 to build do:
 ```
 cd proxysql_mysqlbinlog
-make build-ubuntu18`
+make build-ubuntu18
 ```
 
 executable and package can be found in `./binaries`
