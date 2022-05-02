@@ -48,6 +48,7 @@ fi
 cd /opt/proxysql_mysqlbinlog
 
 export SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+echo "==> Epoch: ${SOURCE_DATE_EPOCH}"
 
 echo "==> Cleaning"
 make cleanbuild
@@ -69,18 +70,22 @@ gem install --no-ri --no-rdoc git -v '1.6'
 gem install --no-ri --no-rdoc fpm -v '1.11.0'
 
 fpm \
+	--debug \
 	-s dir \
 	-t rpm \
 	--version ${PKG_VERS} \
+	--source-date-epoch-default ${SOURCE_DATE_EPOCH} \
+	--architecture native \
 	--license GPLv3 \
 	--category 'Development/Tools' \
 	--rpm-summary 'ProxySQL is a high performance, high availability, protocol aware proxy for MySQL and forks.' \
 	--description 'ProxySQL is a high performance, high availability, protocol aware proxy for MySQL and forks (like Percona Server and MariaDB). All the while getting the unlimited freedom that comes with a GPL license. Its development is driven by the lack of open source proxies that provide high performance.' \
 	--url 'https://proxysql.com' \
 	--vendor 'ProxySQL LLC' \
+	--maintainer '<info@proxysql.com>' \
 	--debug-workspace \
 	--workdir /tmp/ \
-	--package=/opt/proxysql_mysqlbinlog/ \
+	--package /opt/proxysql_mysqlbinlog/ \
 	--name proxysql-mysqlbinlog \
 	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/
 
