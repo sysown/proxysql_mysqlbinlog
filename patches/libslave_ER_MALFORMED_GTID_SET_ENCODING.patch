@@ -1,0 +1,14 @@
+--- libslave/Slave.cpp	2022-03-17 18:40:17.902099104 +0000
++++ libslave/Slave.cpp.N	2022-03-17 18:40:30.449979715 +0000
+@@ -39,6 +39,10 @@
+ #define ER_MASTER_FATAL_ERROR_READING_BINLOG 1236
+ #define BIN_LOG_HEADER_SIZE 4
+ 
++#ifndef ER_MALFORMED_GTID_SET_ENCODING
++#define ER_MALFORMED_GTID_SET_ENCODING 1773
++#endif
++
+ 
+ namespace
+ {
+ unsigned char *net_store_length_fast(unsigned char *pkg, unsigned int length)

@@ -1,5 +1,97 @@
+#!/bin/make -f
+
+
+ifndef GIT_VERSION
+	GIT_VERSION := $(shell git describe --long --abbrev=7 --tags)
+ifndef GIT_VERSION
+	$(error GIT_VERSION is not set)
+endif
+endif
+
+
+
 .PHONY: default
 default: proxysql_binlog_reader
+
+
+proxysql_binlog_reader: proxysql_binlog_reader.cpp libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a libslave/libslave.a
+	g++ -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -ggdb ./libslave/libslave.a ./libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a -I./libslave/ -I./libev/ -I./libdaemon/ -L/usr/lib64/mysql -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
+# -lperconaserverclient if compiled with percona server
+
+libev/.libs/libev.a:
+	rm -rf libev-4.24 || true
+	tar -zxf libev-4.24.tar.gz
+	cd libev-4.24 && ./configure
+	cd libev && CC=${CC} CXX=${CXX} ${MAKE}
+
+libdaemon/libdaemon/.libs/libdaemon.a:
+	rm -rf libdaemon-0.14 || true
+	tar -zxf libdaemon-0.14.tar.gz
+	cd libdaemon && ./configure --disable-examples
+	cd libdaemon && CC=${CC} CXX=${CXX} ${MAKE}
+
+libslave/libslave.a:
+	rm -rf libslave-20171226
+	tar -zxf libslave-20171226.tar.gz
+	# Enable for allowing other replication formats (STATEMENT, MIXED) for debugging purposes
+	#patch -p0 < patches/slave_allow_rep_formats.patch
+	patch -p0 < patches/libslave_DBUG_ASSERT.patch
+	patch -p0 < patches/libslave_ER_MALFORMED_GTID_SET_ENCODING.patch
+	patch -p0 < patches/libslave_SSL_MODE_DISABLED.patch
+	cd libslave && cmake .
+	cd libslave && make slave_a
+
+
+
+.PHONY: build
+build: build-ubuntu14 build-ubuntu16 build-ubuntu18 build-debian9 build-debian10 build-centos7 build-centos8
+
+
+# universal distro target
+.SILENT:
+#.PHONY: $(filter $@,$(distros))
+#$(filter $@,$(distros)): IMG_NAME=$(patsubst build-%,%,$@)
+#$(filter $@,$(distros)):
+.PHONY: build-%
+build-%: IMG_NAME=$(patsubst build-%,%,$@)
+build-%: PKG_TYPE=$(if $(filter $(shell echo ${IMG_NAME} | grep -Po '[a-z]+'),debian ubuntu),deb,rpm)
+build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=v)[\d\.]+')
+build-%:
+	echo 'building $@'
+#	docker run --rm -v "$(shell pwd)":/opt/proxysql_mysqlbinlog proxysql/packaging:build-$(IMG_NAME) /opt/proxysql_mysqlbinlog/docker/entrypoint-$(PKG_TYPE)/entrypoint.bash
+	IMG_NAME=$(IMG_NAME) PKG_TYPE=$(PKG_TYPE) PKG_VERS=$(PKG_VERS) GIT_VERS=$(GIT_VERSION) docker-compose -p $(IMG_NAME) up mysqlbinlog
+	docker-compose -p $(IMG_NAME) rm -f
+
+
+
+.PHONY: cleanbuild
+cleanbuild:
+	rm -f proxysql_binlog_reader || true
+	rm -f proxysql-mysqlbinlog* || true
+	rm -rf libev-4.24
+	rm -rf libdaemon-0.14
+	rm -rf libslave-20171226
+	find . -name '*.a' -delete
+	find . -name '*.o' -delete
+
+.PHONY: cleanall
+cleanall:
+	rm -rf binaries/*
+	rm -f proxysql_binlog_reader || true
+	rm -f proxysql-mysqlbinlog* || true
+	rm -rf libev-4.24
+	rm -rf libdaemon-0.14
+	rm -rf libslave-20171226
+
+
+
+
+
+
+####################################################################################################
+# OBSOLETE stuff beyond this point
+# kept for reference only
+####################################################################################################
 
 
 centos7: binaries/proxysql_binlog_reader-centos7
@@ -29,21 +121,6 @@ debian8: binaries/proxysql_binlog_reader-debian8
 debian7: binaries/proxysql_binlog_reader-debian7
 .PHONY: debian7
 
-proxysql_binlog_reader: proxysql_binlog_reader.cpp libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a
-	g++ -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -ggdb ./libslave/libslave.a ./libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a -I./libslave/ -I./libev/ -I./libdaemon/ -L/usr/lib64/mysql -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
-# -lperconaserverclient if compiled with percona server
-
-libev/.libs/libev.a:
-	rm -rf libev-4.24 || true
-	tar -zxf libev-4.24.tar.gz
-	cd libev-4.24 && ./configure
-	cd libev && CC=${CC} CXX=${CXX} ${MAKE}
-
-libdaemon/libdaemon/.libs/libdaemon.a: 
-	rm -rf libdaemon-0.14 || true
-	tar -zxf libdaemon-0.14.tar.gz
-	cd libdaemon && ./configure --disable-examples
-	cd libdaemon && CC=${CC} CXX=${CXX} ${MAKE}
 
 binaries/proxysql_binlog_reader-centos7:
 	docker stop centos7_build || true
@@ -94,7 +171,6 @@ binaries/proxysql_binlog_reader-ubuntu18:
 	docker cp ubuntu18_build:/opt/proxysql_mysqlbinlog/proxysql_binlog_reader ./binaries/proxysql_binlog_reader-ubuntu18
 	docker exec ubuntu18_build bash -c "apt-get update && apt-get -y install ruby rubygems ruby-dev && gem install fpm && fpm -s dir -t deb -v1.0 --license GPLv3 --category 'Development/Tools' --description 'ProxySQL is a high performance, high availability, protocol aware proxy for MySQL and forks (like Percona Server and MariaDB). All the while getting the unlimited freedom that comes with a GPL license. Its development is driven by the lack of open source proxies that provide high performance.' --url 'https://proxysql.com' --vendor 'ProxySQL LLC' --debug-workspace --workdir /tmp/ --package=/opt/proxysql_mysqlbinlog/ -n proxysql-mysqlbinlog /opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/"
 	docker cp ubuntu18_build:/opt/proxysql_mysqlbinlog/proxysql-mysqlbinlog_1.0_amd64.deb ./binaries/proxysql-mysqlbinlog_1.0-ubuntu18_amd64.deb
-
 
 binaries/proxysql_binlog_reader-ubuntu16:
 	docker stop ubuntu16_build || true
