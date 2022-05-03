@@ -42,7 +42,7 @@ mysqlbinlog-ubuntu:
 .SILENT:
 .PHONY: mysqlbinlog-*
 mysqlbinlog-*: DIST=$(patsubst mysqlbinlog-%,%,$@)
-mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}")
+mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}" | cut -b2-)
 mysqlbinlog-*: TAGL=$(shell echo "latest-${DIST}")
 mysqlbinlog-*:
 	echo 'building $@'
