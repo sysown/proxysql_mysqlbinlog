@@ -58,7 +58,7 @@ echo "==> Building"
 make -j $(ncpu)
 
 echo "==> Packaging"
-cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS:1}-${IMG_NAME}
+cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${IMG_NAME}
 ls -l binaries/
 
 yum -y install ruby rubygems ruby-devel
@@ -90,5 +90,5 @@ fpm \
 	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/
 
 
-mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${GIT_VERS:1}-${IMG_NAME}.${ARCH}.rpm
+mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${GIT_VERS#v}-${IMG_NAME}.${ARCH}.rpm
 ls -l binaries/

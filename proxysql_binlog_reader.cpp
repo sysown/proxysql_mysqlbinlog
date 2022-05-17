@@ -27,7 +27,7 @@
 #include "Slave.h"
 #include "DefaultExtState.h"
 
-#define BINLOG_VERSION "1.0"
+#define BINLOG_VERSION GITVERSION
 
 #define ioctl_FIONBIO(fd, mode) \
 { \

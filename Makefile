@@ -2,7 +2,7 @@
 
 
 ifndef GIT_VERSION
-	GIT_VERSION := $(shell git describe --long --abbrev=7 --tags)
+	GIT_VERSION := $(shell git describe --long --abbrev=7)
 ifndef GIT_VERSION
 	$(error GIT_VERSION is not set)
 endif
@@ -15,7 +15,7 @@ default: proxysql_binlog_reader
 
 
 proxysql_binlog_reader: proxysql_binlog_reader.cpp libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a libslave/libslave.a
-	g++ -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -ggdb ./libslave/libslave.a ./libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a -I./libslave/ -I./libev/ -I./libdaemon/ -L/usr/lib64/mysql -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
+	g++ -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb ./libslave/libslave.a ./libev/.libs/libev.a libdaemon/libdaemon/.libs/libdaemon.a -I./libslave/ -I./libev/ -I./libdaemon/ -L/usr/lib64/mysql -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
 # -lperconaserverclient if compiled with percona server
 
 libev/.libs/libev.a:
@@ -55,7 +55,7 @@ build: build-ubuntu14 build-ubuntu16 build-ubuntu18 build-debian9 build-debian10
 .PHONY: build-%
 build-%: IMG_NAME=$(patsubst build-%,%,$@)
 build-%: PKG_TYPE=$(if $(filter $(shell echo ${IMG_NAME} | grep -Po '[a-z]+'),debian ubuntu),deb,rpm)
-build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=v)[\d\.]+')
+build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=^v|^)[\d\.]+')
 build-%:
 	echo 'building $@'
 #	docker run --rm -v "$(shell pwd)":/opt/proxysql_mysqlbinlog proxysql/packaging:build-$(IMG_NAME) /opt/proxysql_mysqlbinlog/docker/entrypoint-$(PKG_TYPE)/entrypoint.bash

@@ -57,7 +57,7 @@ echo "==> Building"
 make -j $(ncpu)
 
 echo "==> Packaging"
-cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS:1}-${IMG_NAME}
+cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${IMG_NAME}
 ls -l binaries/
 
 #apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 467B942D3A79BD29
@@ -90,5 +90,5 @@ fpm \
 	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/
 
 
-mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${GIT_VERS:1}-${IMG_NAME}_${ARCH}.deb
+mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${GIT_VERS#v}-${IMG_NAME}_${ARCH}.deb
 ls -l binaries/
