@@ -15,7 +15,7 @@ default: mysqlbinlog
 
 .PHONY: clean
 clean:
-	docker images -a | grep "proxysql/proxysql-mysqlbinlog" | awk '{print $3}' | xargs -r 'docker rmi | grep "proxysql/proxysql-mysqlbinlog"'
+	docker images -a | grep 'proxysql/proxysql-mysqlbinlog' | awk '{print $$3}' | sort | uniq | xargs -r docker rmi -f
 
 .PHONY: cleanall
 cleanall:
@@ -46,15 +46,16 @@ mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}" | cut -b2-)
 mysqlbinlog-*: TAGL=$(shell echo "latest-${DIST}")
 mysqlbinlog-*:
 	echo 'building $@'
+	rm -f ./$@/proxysql-mysqlbinlog*$(DIST)*
 	cp ../../binaries/proxysql-mysqlbinlog*$(DIST)* ./$@/
 ifndef MULTIARCH
 	# build for local only
 	docker build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${SILENT}
 endif
 ifdef MULTIARCH
-	# try building both amd64 and arm64, fallback to amd64
+	# try building both amd64 and arm64, fallback to native
 	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ --push ${SILENT} || \
-	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/amd64 $@ --push ${SILENT}
+	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ --push ${SILENT}
 endif
 	echo 'tagged $@'
 
