@@ -7,7 +7,8 @@ ifdef SILENT
 override SILENT=-q
 endif
 
-VER=$(shell git tag | sort -r | head -1)
+GIT_VERSION=$(shell git describe --long --abbrev=7)
+VER=$(shell git describe --long --abbrev=7 | cut -d- -f1)
 
 
 .PHONY: default
@@ -42,7 +43,7 @@ mysqlbinlog-ubuntu:
 .SILENT:
 .PHONY: mysqlbinlog-*
 mysqlbinlog-*: DIST=$(patsubst mysqlbinlog-%,%,$@)
-mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}" | cut -b2-)
+mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}")
 mysqlbinlog-*: TAGL=$(shell echo "latest-${DIST}")
 mysqlbinlog-*:
 	echo 'building $@'
@@ -54,7 +55,8 @@ ifndef MULTIARCH
 endif
 ifdef MULTIARCH
 	# try building both amd64 and arm64, fallback to native
-	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ --push ${SILENT} || \
+#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ --push ${SILENT} || \
+#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ --push ${SILENT}
 	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ --push ${SILENT}
 endif
 	echo 'tagged $@'
