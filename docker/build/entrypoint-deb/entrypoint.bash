@@ -44,6 +44,7 @@ if [[ "$(cat /etc/os-release)" =~ "Debian GNU/Linux 10" ]]; then
 	wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h
 fi
 
+git config --system --add safe.directory /opt/proxysql_mysqlbinlog
 cd /opt/proxysql_mysqlbinlog
 
 export SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)

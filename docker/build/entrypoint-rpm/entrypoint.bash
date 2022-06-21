@@ -45,6 +45,8 @@ if [[ "$(cat /etc/redhat-release)" =~ "CentOS release 6" ]]; then
 	rpm -ihv mysql-community-client-5.7.37-1.el6.x86_64.rpm mysql-community-libs-5.7.37-1.el6.x86_64.rpm mysql-community-common-5.7.37-1.el6.x86_64.rpm mysql-community-devel-5.7.37-1.el6.x86_64.rpm
 	wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h
 fi
+
+git config --system --add safe.directory /opt/proxysql_mysqlbinlog
 cd /opt/proxysql_mysqlbinlog
 
 export SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
