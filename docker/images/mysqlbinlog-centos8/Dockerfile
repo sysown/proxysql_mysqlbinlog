@@ -18,7 +18,7 @@ RUN yum -y install \
 
 # copy package from context
 COPY proxysql-mysqlbinlog-*.rpm ./
-RUN rpm -i proxysql-mysqlbinlog-*.rpm && \
+RUN bash -c "rpm -i proxysql-mysqlbinlog-*$(rpm --eval '%{_arch}').rpm" && \
 	rm -f proxysql-mysqlbinlog-*.rpm
 
 CMD ["sh", "-c", "proxysql_binlog_reader -h \"${MYSQL_HOST:-127.0.0.1}\" -u \"${MYSQL_USER:=root}\" -p \"${MYSQL_PASSWORD:-root}\" -P \"${MYSQL_PORT:-3306}\" -l \"${LISTEN_PORT:-6020}\" -f"]
