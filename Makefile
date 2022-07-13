@@ -44,7 +44,7 @@ libslave/libslave.a:
 
 
 .PHONY: build
-build: build-ubuntu14 build-ubuntu16 build-ubuntu18 build-debian9 build-debian10 build-centos7 build-centos8
+build: build-ubuntu16 build-ubuntu18 build-ubuntu20 build-debian9 build-debian10 build-debian11 build-centos7 build-centos8
 
 
 # universal distro target
@@ -58,6 +58,8 @@ build-%: PKG_TYPE=$(if $(filter $(shell echo ${IMG_NAME} | grep -Po '[a-z]+'),de
 build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=^v|^)[\d\.]+')
 build-%:
 	echo 'building $@'
+#	build in docker-compose.yml has templating bug, make the image here
+	cd ./docker/build/ && ${MAKE} build-${IMG_NAME}
 #	docker run --rm -v "$(shell pwd)":/opt/proxysql_mysqlbinlog proxysql/packaging:build-$(IMG_NAME) /opt/proxysql_mysqlbinlog/docker/entrypoint-$(PKG_TYPE)/entrypoint.bash
 	IMG_NAME=$(IMG_NAME) PKG_TYPE=$(PKG_TYPE) PKG_VERS=$(PKG_VERS) GIT_VERS=$(GIT_VERSION) docker-compose -p $(IMG_NAME) up mysqlbinlog
 	docker-compose -p $(IMG_NAME) rm -f
@@ -75,13 +77,13 @@ cleanbuild:
 	find . -name '*.o' -delete
 
 .PHONY: cleanall
-cleanall:
+cleanall: cleanbuild
 	rm -rf binaries/*
-	rm -f proxysql_binlog_reader || true
-	rm -f proxysql-mysqlbinlog* || true
-	rm -rf libev-4.24
-	rm -rf libdaemon-0.14
-	rm -rf libslave-20171226
+#	rm -f proxysql_binlog_reader || true
+#	rm -f proxysql-mysqlbinlog* || true
+#	rm -rf libev-4.24
+#	rm -rf libdaemon-0.14
+#	rm -rf libslave-20171226
 
 
 
