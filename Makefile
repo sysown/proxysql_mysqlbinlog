@@ -38,6 +38,7 @@ libslave/libslave.a:
 	patch -p0 < patches/libslave_DBUG_ASSERT.patch
 	patch -p0 < patches/libslave_ER_MALFORMED_GTID_SET_ENCODING.patch
 	patch -p0 < patches/libslave_SSL_MODE_DISABLED.patch
+	patch -p0 < patches/libslave_MySQL_8_new_events.patch
 	cd libslave && cmake .
 	cd libslave && make slave_a
 

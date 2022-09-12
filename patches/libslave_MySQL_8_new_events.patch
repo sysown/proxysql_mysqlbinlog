@@ -1,0 +1,42 @@
+diff --git libslave/slave_log_event.cpp libslave/slave_log_event.cpp
+index 6277100..6a86497 100644
+--- libslave/slave_log_event.cpp
++++ libslave/slave_log_event.cpp
+@@ -364,6 +364,13 @@ bool read_log_event(const char* buf, uint event_len, Basic_event_info& bei, Even
+     case TRANSACTION_CONTEXT_EVENT:
+     case VIEW_CHANGE_EVENT:
+     case XA_PREPARE_LOG_EVENT:
++	// UNSUPPORTED: MySQL 8 events - We only acknowledge the existence of this
++	// events, they remain UNSUPPORTED by this library.
++	// ========================================================================
++	case PARTIAL_UPDATE_ROWS_EVENT:
++	case TRANSACTION_PAYLOAD_EVENT:
++	case HEARTBEAT_LOG_EVENT_V2:
++	// ========================================================================
+         if (event_stat)
+             event_stat->tickOther();
+         return false;
+diff --git libslave/slave_log_event.h libslave/slave_log_event.h
+index 9c66d9f..b5eb714 100644
+--- libslave/slave_log_event.h
++++ libslave/slave_log_event.h
+@@ -87,6 +87,19 @@ enum Log_event_type
+ 
+   XA_PREPARE_LOG_EVENT= 38,
+ 
++  // 8.0 UNSUPPORTED: MySQL 8 events - We only acknowledge the existence of this
++  // events, they remain UNSUPPORTED by this library. Source:
++  //  - https://github.com/mysql/mysql-server/blob/8.0/libbinlogevents/include/binlog_event.h#L347
++  // ========================================================================
++
++  PARTIAL_UPDATE_ROWS_EVENT= 39,
++
++  TRANSACTION_PAYLOAD_EVENT= 40,
++
++  HEARTBEAT_LOG_EVENT_V2= 41,
++
++  // ========================================================================
++
+   ENUM_END_EVENT
+ };
+ 
