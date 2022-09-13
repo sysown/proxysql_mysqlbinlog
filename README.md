@@ -45,7 +45,8 @@ https://hub.docker.com/r/proxysql/proxysql-mysqlbinlog
 
 run the command with parameters, e.g:
 
-./proxysql_binlog_reader -h ${MYSQL_HOST:-127.0.0.1} -u ${MYSQL_USER:=root} -p ${MYSQL_PASSWORD:-root} -P ${MYSQL_PORT:-3306} -l ${LISTEN_PORT:-6020} -f
-
+```
+./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
+```
 
 
