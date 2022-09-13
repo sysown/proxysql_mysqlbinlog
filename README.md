@@ -1,6 +1,9 @@
 # ProxySQL - MySQL Binlog Reader
 
-MySQL Binlog reader and parser to be used with ProxySQL
+MySQL Binlog reader and parser to be used with ProxySQL and MySQL.
+
+MySQL Binlog reader is a service that runs on MySQL host, tracks GTIDs and provides them to ProxySQL for use in adaptive query routing.
+https://www.proxysql.com/blog/proxysql-gtid-causal-reads
 
 ### Requirements
 
@@ -51,11 +54,39 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
 ```
 
+#### Arguments:
+
++ `-h`: MySQL host
++ `-u`: MySQL username
++ `-p`: MySQL password
++ `-P`: MySQL port
++ `-l`: listening port
++ `-f`: run in foreground - all logging goes to stdout/stderr
++ `-L`: path to log file
+
 configure ProxySQL `mysql_servers` with coresponding `gtid_port` for each server:
 
 ```
 INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (10,'127.0.0.1',6020,3306,1,'mysql1');
 ```
+
+monitor the ProxySQL `stats_mysql_gtid_executed` table for executed GTIDs:
+
+```
+SELECT hostname,gtid_executed FROM stats_mysql_gtid_executed\G
+
+*************************** 1. row ***************************
+     hostname: mysql1
+gtid_executed: 85c17137-4258-11e8-8090-0242ac130002:1-146301
+*************************** 2. row ***************************
+     hostname: mysql2
+gtid_executed: 85c17137-4258-11e8-8090-0242ac130002:1-146300,8a093f5f-4258-11e8-8037-0242ac130004:1-5
+*************************** 3. row ***************************
+     hostname: mysql3
+gtid_executed: 85c17137-4258-11e8-8090-0242ac130002:1-146301,8a0ac961-4258-11e8-8003-0242ac130003:1-5
+```
+
+
 ### More
 
 https://proxysql.com/blog/proxysql-gtid-causal-reads/
