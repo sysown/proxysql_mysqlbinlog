@@ -37,16 +37,25 @@ executable and package can be found in `./binaries`
 -rwxr-xr-x 1 root root 5717720 May  2 15:54 proxysql_binlog_reader-2.0-0-g663ab16-ubuntu18
 ```
 
-### Docker Images
+### Containers
+
+Ready to use docker containers:
 
 https://hub.docker.com/r/proxysql/proxysql-mysqlbinlog
 
 ### HowTo
 
-run the command with parameters, e.g:
+on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 
 ```
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
 ```
 
+configure ProxySQL `mysql_servers` with coresponding `gtid_port` for each server:
 
+```
+INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (10,'127.0.0.1',6020,3306,1,'mysql1');
+```
+### More
+
+https://proxysql.com/blog/proxysql-gtid-causal-reads/
