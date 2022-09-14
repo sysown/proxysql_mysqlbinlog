@@ -64,10 +64,14 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
 
-configure ProxySQL `mysql_servers` with coresponding `gtid_port` for each server:
+configure ProxySQL `mysql_servers` with coresponding `gtid_port` for each server, and also `mysql_replication_hostgroups`:
 
 ```
-INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (10,'127.0.0.1',6020,3306,1,'mysql1');
+INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (10,'mysql1',6020,3306,1,'mysql1');
+INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (20,'mysql2',6020,3306,1,'mysql2');
+INSERT INTO mysql_servers (hostgroup_id,hostname,gtid_port,port,max_replication_lag,comment) VALUES (20,'mysql3',6020,3306,1,'mysql3');
+INSERT INTO mysql_replication_hostgroups (writer_hostgroup,reader_hostgroup,comment) VALUES (10,20,'gtid_replication');
+LOAD MYSQL SERVERS TO RUNTIME;
 ```
 
 monitor the ProxySQL `stats_mysql_gtid_executed` table for executed GTIDs:
