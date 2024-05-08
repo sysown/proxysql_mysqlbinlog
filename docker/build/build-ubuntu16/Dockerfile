@@ -8,5 +8,6 @@ RUN git config --system --add safe.directory /opt/
 # fpm packaging
 RUN apt-get -y update && \
 	apt-get -y install ruby ruby-dev && \
+	gem install --no-ri --no-rdoc dotenv -v '2.8.1' && \
 	gem install --no-ri --no-rdoc ffi -v '1.9.14' && \
 	gem install --no-ri --no-rdoc fpm -v '1.11.0'
