@@ -85,6 +85,7 @@ uint64_t last_trx_id = 0;
 char *errorlog = NULL;
 bool foreground = false;
 unsigned int listen_port = DEFAULT_LISTEN_PORT;
+uint64_t update_freq_ms = 0;
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -445,7 +446,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	}
 }
 
-void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
+void write_clients() {
 	pthread_mutex_lock(&pos_mutex);
 	std::vector<struct ev_io *> to_remove;
 	for (std::vector<struct ev_io *>::iterator it=Clients.begin(); it!=Clients.end(); ++it) {
@@ -459,10 +460,7 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 				custom_data->add_string("I2=" + std::to_string(trx_ids.at(i)) + "\n");
 			}
 		}
-		bool rc = false;
-		//if (w->active)
-		rc = custom_data->writeout();
-		if (rc == false) {
+		if (!custom_data->writeout()) {
 			delete custom_data;
 			to_remove.push_back(w);
 		} else {
@@ -493,6 +491,15 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	return;
 }
 
+void asnyc_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
+	write_clients();
+	return;
+}
+
+void timer_cb(struct ev_loop *loop, struct ev_timer *t, int revents) {
+	write_clients();
+	return;
+}
 
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	stopflag = 1;
@@ -542,8 +549,13 @@ class GTID_Server_Dumper {
 		}
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
-		ev_async_init(&async, async_cb);
-		ev_async_start(my_loop, &async);
+		if (update_freq_ms) {
+			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
+			ev_timer_start(my_loop, &timer);
+		} else {
+			ev_async_init(&async, asnyc_cb);
+			ev_async_start(my_loop, &async);
+		}
 		ev_signal signal_watcher1;
 		ev_signal signal_watcher2;
 		ev_signal_init (&signal_watcher1, sigint_cb, SIGINT);
@@ -561,22 +573,25 @@ class GTID_Server_Dumper {
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
-	if (last_trx_id==sl->gtid_next.second && strcmp(last_server_uuid,sl->gtid_next.first.c_str())==0) {
+
+	const char *uuid=sl->gtid_next.first.c_str();
+	uint64_t trx_id = sl->gtid_next.second;
+	if (last_trx_id == trx_id && strcmp(last_server_uuid, uuid)) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
-	} else {
-		//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
-		strcpy(last_server_uuid,sl->gtid_next.first.c_str());
-		last_trx_id = sl->gtid_next.second;
-		char *str=strdup(sl->gtid_next.first.c_str());
-		server_uuids.push_back(str);
-		trx_ids.push_back(sl->gtid_next.second);
-		curpos.addGtid(sl->gtid_next);
-		pthread_mutex_unlock(&pos_mutex);
+		return;
+	}
+
+	strcpy(last_server_uuid, uuid);
+	last_trx_id = trx_id;
+	server_uuids.push_back(strdup(uuid));
+	trx_ids.push_back(trx_id);
+	curpos.addGtid(sl->gtid_next);
+	pthread_mutex_unlock(&pos_mutex);
+	if (!update_freq_ms) {
 		ev_async_send(loop, &async);
 	}
 }
-
 
 bool isStopping() {
 	return stopflag;
@@ -620,6 +635,7 @@ void usage(const char* name) {
 	"-P: MySQL port (default " << DEFAULT_MYSQL_PORT << ").\n"
 	"-p: MySQL password.\n"
 	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
+	"-t: Update freqency, in milliseconds. Default is update on every event (0).\n"
 	"-f: Run in foreground.\n"
 	"-v: Outputs build version.\n"
 	<< std::endl;
@@ -640,7 +656,7 @@ int main(int argc, char** argv) {
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfh:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vft:h:u:p:P:l:L:"))) {
 		switch (c) {
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
@@ -652,6 +668,7 @@ int main(int argc, char** argv) {
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L': errorstr = optarg; break;
+			case 't': update_freq_ms = std::stoi(optarg); break;
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
@@ -758,6 +775,10 @@ __start_label:
 		sl = &slave;
 
 		slave.setXidCallback(bench_xid_callback);
+
+		if (update_freq_ms) {
+			proxy_info("Pushing updates every %lums\n", update_freq_ms);
+		}
 
 		//std::cout << "Initializing client..." << std::endl;
 		proxy_info("Initializing client...\n");
