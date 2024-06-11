@@ -56,7 +56,7 @@ void proxy_error_func(const char *fmt, ...) {
 #define DEFAULT_ERRORLOG     "/tmp/proxysql_mysqlbinlog.log"
 #define DEFAULT_MYSQL_PORT   3306
 #define DEFAULT_LISTEN_PORT  6020
-#define NETBUFLEN            256
+#define NETBUFLEN            4096
 
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
@@ -296,68 +296,49 @@ class Client_Data {
 		ip = (char *)malloc(strlen(a)+16);
 		sprintf(ip,"%s:%d",a,p);
 	}
- 
+
 	bool writeout() {
 		bool ret = true;
-		if (len==0) {
-			return ret;
-		}
-		int rc = 0;
-		rc = write(w->fd,data+pos,len-pos);
-		if (rc > 0) {
-			pos += rc;
-			if (pos >= len/2) {
-				memmove(data,data+pos,len-pos);
-				len = len-pos;
-				pos = 0;
-			}
-			int new_events = EV_READ;
-			if (len) {
-				new_events |= EV_WRITE;
-			}
-			if (new_events != w->events) {
-				ev_io_stop(loop, w);
-				ev_io_set(w, w->fd, new_events);
-				ev_io_start(loop, w);
-			}
-		} else {
-			int myerr = errno;
-			if (
-				(rc==0) ||
-				(rc==-1 && myerr != EINTR && myerr != EAGAIN)
-			) {
-				ret = false;
+		while (len) {
+			size_t chunk = len-pos;
+			if (chunk > NETBUFLEN) { chunk = NETBUFLEN; }
+			int rc = write(w->fd,data+pos,chunk);
+			if (rc > 0) {
+				pos += rc;
+				if (pos >= len/2) {
+					memmove(data,data+pos,len-pos);
+					len -= pos;
+					pos = 0;
+				}
+				int new_events = EV_READ;
+				if (len) {
+					new_events |= EV_WRITE;
+				}
+				if (new_events != w->events) {
+					ev_io_stop(loop, w);
+					ev_io_set(w, w->fd, new_events);
+					ev_io_start(loop, w);
+				}
+			} else {
+				int myerr = errno;
+				if (
+					(rc==0) ||
+					(rc==-1 && myerr != EINTR && myerr != EAGAIN)
+				) {
+					proxy_info("failed to write %d bytes to client FD %d, error %d", chunk, w->fd, errno);
+					ret = false;
+					break;
+				}
 			}
 		}
 		if (ret == false) {
-			//std::vector<struct ev_io *>::iterator it;
-			//it = std::find(Clients.begin(), Clients.end(), w);
-			//if (it != Clients.end()) {
-			//	proxy_info("Remove client with FD %d\n" , w->fd);
-			//	Clients.erase(it);
-				ev_io_stop(loop,w);
-				shutdown(w->fd,SHUT_RDWR);
-				close(w->fd);
-				//Client_Data *custom_data = (Client_Data *)watcher->data;
-				//delete custom_data;
-				//watcher->data = NULL;
-				//free(w);
-			//}
+			ev_io_stop(loop,w);
+			shutdown(w->fd,SHUT_RDWR);
+			close(w->fd);
 		}
 		return ret;
 	}
 };
-
-/*
-void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-	Client_Data * custom_data = (Client_Data *)watcher->data;
-	bool rc = custom_data->writeout();
-	if (rc == false) {
-		delete custom_data;
-		free(watcher);
-	}
-}
-*/
 
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
@@ -440,7 +421,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
-		proxy_info("Error accepting client with FD %d\n", client->fd);	
+		proxy_info("Error accepting client with FD %d\n", client->fd);
 		delete custom_data;
 		free(client);
 	}
@@ -464,7 +445,7 @@ void write_clients() {
 			delete custom_data;
 			to_remove.push_back(w);
 		} else {
-			if (custom_data->size > 2048) {
+			if (custom_data->size > 4 * NETBUFLEN) {
 				ev_io_stop(loop,w);
 				shutdown(w->fd,SHUT_RDWR);
 				close(w->fd);
@@ -486,7 +467,7 @@ void write_clients() {
 	}
 	server_uuids.clear();
 	trx_ids.clear();
-	
+
 	pthread_mutex_unlock(&pos_mutex);
 	return;
 }
