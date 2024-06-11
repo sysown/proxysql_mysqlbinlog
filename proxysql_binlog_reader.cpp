@@ -53,8 +53,11 @@ void proxy_error_func(const char *fmt, ...) {
 		proxy_error_func("%s [INFO] " fmt , __buffer , ## __VA_ARGS__); \
 	} while(0)
 
+#define DEFAULT_ERRORLOG     "/tmp/proxysql_mysqlbinlog.log"
+#define DEFAULT_MYSQL_PORT   3306
+#define DEFAULT_LISTEN_PORT  6020
+#define NETBUFLEN            256
 
-unsigned int listen_port = 6020;
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
 
@@ -68,7 +71,6 @@ std::string gtid_executed_to_string(slave::Position &curpos);
 
 static struct ev_loop *loop;
 
-#define NETBUFLEN 256
 volatile sig_atomic_t stopflag = 0;
 slave::Slave* sl = NULL;
 
@@ -77,11 +79,12 @@ slave::Position curpos;
 int pipefd[2];
 
 char last_server_uuid[256];
-uint64_t last_trxid = 0;
+uint64_t last_trx_id = 0;
 
-bool foreground = false;
-
+// Global arguments
 char *errorlog = NULL;
+bool foreground = false;
+unsigned int listen_port = DEFAULT_LISTEN_PORT;
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -560,13 +563,13 @@ class GTID_Server_Dumper {
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
-	if (last_trxid==sl->gtid_next.second && strcmp(last_server_uuid,sl->gtid_next.first.c_str())==0) {
+	if (last_trx_id==sl->gtid_next.second && strcmp(last_server_uuid,sl->gtid_next.first.c_str())==0) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
 	} else {
 		//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
 		strcpy(last_server_uuid,sl->gtid_next.first.c_str());
-		last_trxid = sl->gtid_next.second;
+		last_trx_id = sl->gtid_next.second;
 		char *str=strdup(sl->gtid_next.first.c_str());
 		server_uuids.push_back(str);
 		trx_ids.push_back(sl->gtid_next.second);
@@ -605,14 +608,24 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 	return gtid_set;
 }
 
-
-
-
-
 void usage(const char* name) {
-	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file>" << std::endl;
+	std::cout << "Usage: " << name << " [args]\n"
+	"\n"
+	"Required arguments:\n"
+	"\n"
+	"-h: MySQL host address.\n"
+	"-u: MySQL user.\n"
+	"\n"
+	"Optional arguments:\n"
+	"\n"
+	"-L: Log file path (default " DEFAULT_ERRORLOG ").\n"
+	"-P: MySQL port (default " << DEFAULT_MYSQL_PORT << ").\n"
+	"-p: MySQL password.\n"
+	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
+	"-f: Run in foreground.\n"
+	"-v: Outputs build version.\n"
+	<< std::endl;
 }
-
 
 void * server(void *args) {
 	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_port);
@@ -624,11 +637,9 @@ int main(int argc, char** argv) {
 	std::string user;
 	std::string password;
 	std::string errorstr;
-	unsigned int port = 3306;
-
+	unsigned int port = DEFAULT_MYSQL_PORT;
 
 	bool error = false;
-
 
 	int c;
 	while (-1 != (c = ::getopt(argc, argv, "vfh:u:p:P:l:L:"))) {
@@ -642,7 +653,7 @@ int main(int argc, char** argv) {
 				break;
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
-			case 'L' : errorstr = optarg; break;
+			case 'L': errorstr = optarg; break;
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
@@ -653,7 +664,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (errorstr.empty()) {
-		errorlog = (char *)"/tmp/proxysql_mysqlbinlog.log";
+		errorlog = (char *)DEFAULT_ERRORLOG;
 	} else {
 		errorlog = strdup(errorstr.c_str());
 	}
