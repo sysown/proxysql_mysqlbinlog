@@ -283,6 +283,9 @@ class Client_Data {
 		memcpy(data+len,_ptr,_s);
 		len += _s;
 	}
+	void add_string(std::string s) {
+		add_string(s.c_str(), s.size());
+	}
 	~Client_Data() {
 		if (ip) free(ip);
 		free(data);
@@ -430,8 +433,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	pthread_mutex_lock(&pos_mutex);
 	std::string s1 = gtid_executed_to_string(curpos);
 	pthread_mutex_unlock(&pos_mutex);
-	s1 = "ST=" + s1 + "\n";
-	custom_data->add_string(s1.c_str(), s1.length());
+	custom_data->add_string("ST=" + s1 + "\n");
 	bool ret = custom_data->writeout();
 	if (ret) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
@@ -452,13 +454,9 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 		for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
 			if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, server_uuids.at(i), strlen(server_uuids.at(i)))) {
 				strcpy(custom_data->uuid_server,server_uuids.at(i));
-				custom_data->add_string((const char *)"I1=",3);
-				std::string s2 = server_uuids.at(i);
-				s2 += ":" + std::to_string(trx_ids.at(i)) + "\n";
-				custom_data->add_string(s2.c_str(),s2.length());
+				custom_data->add_string("I1=" + std::string(server_uuids.at(i)) + ":" + std::to_string(trx_ids.at(i)) + "\n");
 			} else {
-				std::string s2 = "I2=" + std::to_string(trx_ids.at(i)) + "\n";
-				custom_data->add_string(s2.c_str(),s2.length());
+				custom_data->add_string("I2=" + std::to_string(trx_ids.at(i)) + "\n");
 			}
 		}
 		bool rc = false;
