@@ -20,4 +20,4 @@ RUN yum install -y ruby rubygems ruby-devel && \
 	gem install --no-document dotenv -v '2.8.1' && \
 	gem install --no-document rexml -v '3.2.6' && \
 	gem install --no-document ffi -v '1.9.14' && \
-	gem install --no-document fpm -v '1.11.0'
+	gem install --no-document fpm -v '1.12.0'
