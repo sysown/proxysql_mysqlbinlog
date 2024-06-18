@@ -17,5 +17,6 @@ RUN apt-get -y update && \
 
 # fpm packaging
 RUN apt-get -y install ruby ruby-dev && \
-	gem install ffi && \
-	gem install fpm
+	gem install --no-document dotenv -v '2.8.1' && \
+	gem install --no-document ffi -v '1.9.14' && \
+	gem install --no-document fpm -v '1.12.0'
