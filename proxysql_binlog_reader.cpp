@@ -56,7 +56,8 @@ void proxy_error_func(const char *fmt, ...) {
 #define DEFAULT_ERRORLOG     "/tmp/proxysql_mysqlbinlog.log"
 #define DEFAULT_MYSQL_PORT   3306
 #define DEFAULT_LISTEN_PORT  6020
-#define NETBUFLEN            4096
+#define NETBUFLEN            256
+#define WRITE_CHUNKLEN       4096
 
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
@@ -256,6 +257,7 @@ class Client_Data {
 	public:
 	char *data;
 	size_t len;
+	size_t max_len;
 	size_t size;
 	size_t pos;
 	struct ev_io *w;
@@ -268,6 +270,7 @@ class Client_Data {
 		uuid_server[0] = 0;
 		pos = 0;
 		len = 0;
+		max_len = 0;
 		ip = strdup("unknown");
 	}
 	void resize(size_t _s) {
@@ -279,10 +282,14 @@ class Client_Data {
 	}
 	void add_string(const char *_ptr, size_t _s) {
 		if (size < len + _s) {
-			resize(len + ( _s < 50 ? _s * 10 : _s));
+			// Round up size to n-times NETBUFLEN
+			size_t new_s = len + _s;
+			new_s = ((new_s / NETBUFLEN) + (new_s % NETBUFLEN != 0 ? 1 : 0)) * NETBUFLEN;
+			resize(new_s);
 		}
 		memcpy(data+len,_ptr,_s);
 		len += _s;
+		if (len > max_len) max_len = len;
 	}
 	void add_string(std::string s) {
 		add_string(s.c_str(), s.size());
@@ -301,7 +308,7 @@ class Client_Data {
 		bool ret = true;
 		while (len) {
 			size_t chunk = len-pos;
-			if (chunk > NETBUFLEN) { chunk = NETBUFLEN; }
+			if (chunk > WRITE_CHUNKLEN) { chunk = WRITE_CHUNKLEN; }
 			int rc = write(w->fd,data+pos,chunk);
 			if (rc > 0) {
 				pos += rc;
@@ -310,27 +317,29 @@ class Client_Data {
 					len -= pos;
 					pos = 0;
 				}
-				int new_events = EV_READ;
-				if (len) {
-					new_events |= EV_WRITE;
-				}
-				if (new_events != w->events) {
-					ev_io_stop(loop, w);
-					ev_io_set(w, w->fd, new_events);
-					ev_io_start(loop, w);
-				}
 			} else {
 				int myerr = errno;
 				if (
 					(rc==0) ||
 					(rc==-1 && myerr != EINTR && myerr != EAGAIN)
 				) {
-					proxy_info("failed to write %d bytes to client FD %d, error %d", chunk, w->fd, errno);
+					proxy_info("failed to write %d/%d bytes to client FD %d, error %d", chunk, len-pos, w->fd, errno);
 					ret = false;
 					break;
 				}
 			}
 		}
+
+		int new_events = EV_READ;
+		if (len) {
+			new_events |= EV_WRITE;
+		}
+		if (new_events != w->events) {
+			ev_io_stop(loop, w);
+			ev_io_set(w, w->fd, new_events);
+			ev_io_start(loop, w);
+		}
+
 		if (ret == false) {
 			ev_io_stop(loop,w);
 			shutdown(w->fd,SHUT_RDWR);
@@ -445,7 +454,8 @@ void write_clients() {
 			delete custom_data;
 			to_remove.push_back(w);
 		} else {
-			if (custom_data->size > 4 * NETBUFLEN) {
+			// Close connection if we write on every GTID update and the queue grows too big.
+			if (!update_freq_ms && custom_data->max_len > 8 * NETBUFLEN) {
 				ev_io_stop(loop,w);
 				shutdown(w->fd,SHUT_RDWR);
 				close(w->fd);
@@ -472,7 +482,7 @@ void write_clients() {
 	return;
 }
 
-void asnyc_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
+void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	write_clients();
 	return;
 }
@@ -531,10 +541,11 @@ class GTID_Server_Dumper {
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
 		if (update_freq_ms) {
+			proxy_info("Pushing updates every %lums\n", update_freq_ms);
 			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
 			ev_timer_start(my_loop, &timer);
 		} else {
-			ev_async_init(&async, asnyc_cb);
+			ev_async_init(&async, async_cb);
 			ev_async_start(my_loop, &async);
 		}
 		ev_signal signal_watcher1;
@@ -756,10 +767,6 @@ __start_label:
 		sl = &slave;
 
 		slave.setXidCallback(bench_xid_callback);
-
-		if (update_freq_ms) {
-			proxy_info("Pushing updates every %lums\n", update_freq_ms);
-		}
 
 		//std::cout << "Initializing client..." << std::endl;
 		proxy_info("Initializing client...\n");
