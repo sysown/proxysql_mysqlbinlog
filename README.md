@@ -54,7 +54,7 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
 ```
 
-#### Arguments:
+#### Arguments
 
 + `-h`: MySQL host
 + `-u`: MySQL username
@@ -63,6 +63,9 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-l`: listening port
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
++ `-t`: optional update throttling, in milliseconds
+
+#### Configuration
 
 configure ProxySQL `mysql_servers` with coresponding `gtid_port` for each server, and also `mysql_replication_hostgroups`:
 
@@ -89,7 +92,6 @@ gtid_executed: 85c17137-4258-11e8-8090-0242ac130002:1-146300,8a093f5f-4258-11e8-
      hostname: mysql3
 gtid_executed: 85c17137-4258-11e8-8090-0242ac130002:1-146301,8a0ac961-4258-11e8-8003-0242ac130003:1-5
 ```
-
 
 ### More
 
