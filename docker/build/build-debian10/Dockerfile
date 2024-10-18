@@ -1,4 +1,4 @@
-FROM proxysql/packaging:build-debian10
+FROM proxysql/packaging:build-debian10-v2.5.3
 
 MAINTAINER Miro Stauder <miro@proxysql.com>
 
@@ -16,6 +16,5 @@ RUN apt-get -y update && \
 	wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h
 
 # fpm packaging
-RUN apt-get -y install ruby ruby-dev && \
-	gem install ffi && \
+RUN apt-get -y install ruby ruby-dev ruby-ffi ruby-dotenv && \
 	gem install fpm
