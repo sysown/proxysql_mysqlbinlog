@@ -60,7 +60,7 @@ build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=^v|^)[\d\.]+')
 build-%:
 	echo 'building $@'
 #	build in docker-compose.yml has templating bug, make the image here
-	cd ./docker/build/ && ${MAKE} build-${IMG_NAME}
+#	cd ./docker/build/ && ${MAKE} build-${IMG_NAME}
 #	docker run --rm -v "$(shell pwd)":/opt/proxysql_mysqlbinlog proxysql/packaging:build-$(IMG_NAME) /opt/proxysql_mysqlbinlog/docker/entrypoint-$(PKG_TYPE)/entrypoint.bash
 	IMG_NAME=$(IMG_NAME) PKG_TYPE=$(PKG_TYPE) PKG_VERS=$(PKG_VERS) GIT_VERS=$(GIT_VERSION) docker-compose -p $(IMG_NAME) up mysqlbinlog
 	docker-compose -p $(IMG_NAME) rm -f

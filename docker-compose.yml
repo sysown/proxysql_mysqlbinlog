@@ -2,7 +2,7 @@ version: "3.0"
 services:
 
   mysqlbinlog:
-    image: proxysql/packaging-mysqlbinlog:build-${IMG_NAME}
+    image: proxysql/proxysql-mysqlbinlog:build-${IMG_NAME}
 #    build: ./docker/build/build-${IMG_NAME}
     volumes:
       - ./docker/build/:/opt/entrypoint/

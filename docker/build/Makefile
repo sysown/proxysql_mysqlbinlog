@@ -47,7 +47,7 @@ build-*:
 	echo 'building $@'
 ifndef MULTIARCH
 	# build for local only
-	docker build -t proxysql/packaging-mysqlbinlog:build-$(DIST) --pull $@ ${SILENT}
+	docker build -t proxysql/proxysql-mysqlbinlog:build-$(DIST)-v2.1 -t proxysql/proxysql-mysqlbinlog:build-$(DIST) --pull $@ ${SILENT} --push
 endif
 ifdef MULTIARCH
 	# try building both amd64 and arm64, fallback to native
