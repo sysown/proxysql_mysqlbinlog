@@ -1,4 +1,3 @@
-version: "3.0"
 services:
 
   mysqlbinlog:
@@ -15,4 +14,3 @@ services:
       - GIT_VERS=${GIT_VERS}
     command:
       - /opt/entrypoint/entrypoint.bash
-

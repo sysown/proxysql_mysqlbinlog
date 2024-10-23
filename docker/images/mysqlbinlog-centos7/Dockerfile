@@ -1,6 +1,6 @@
 FROM centos:7
 
-MAINTAINER Miro Stauder <miro@proxysql.com>
+LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 # fix keys
 RUN rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7

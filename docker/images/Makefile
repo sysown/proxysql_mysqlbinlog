@@ -3,6 +3,10 @@
 NPROCS := $(shell nproc)
 export MAKEFLAGS=-j ${NPROCS}
 
+ifdef PUSH
+override PUSH=--push
+endif
+
 ifdef SILENT
 override SILENT=-q
 endif
@@ -51,13 +55,13 @@ mysqlbinlog-*:
 	cp ../../binaries/proxysql-mysqlbinlog*$(DIST)* ./$@/
 ifndef MULTIARCH
 	# build for local only
-	docker build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${SILENT}
+	docker build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${PUSH} ${SILENT}
 endif
 ifdef MULTIARCH
 	# try building both amd64 and arm64, fallback to native
-#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ --push ${SILENT} || \
-#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ --push ${SILENT}
-	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ --push ${SILENT}
+#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ ${PUSH} ${SILENT} || \
+#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${PUSH} ${SILENT}
+	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) -t proxysql/proxysql-mysqlbinlog:latest --pull $@ ${PUSH} ${SILENT}
 endif
 	echo 'tagged $@'
 

@@ -1,6 +1,6 @@
-FROM proxysql/packaging:build-centos8
+FROM proxysql/packaging:build-centos8-v2.5.3
 
-MAINTAINER Miro Stauder <miro@proxysql.com>
+LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 # set git safe dir
 RUN git config --system --add safe.directory /
@@ -15,6 +15,9 @@ RUN yum update -y && \
 	wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h
 
 # fpm packaging
-RUN yum install -y ruby rubygems ruby-devel && \
-	gem install ffi && \
+RUN yum install -y @ruby:3.0 ruby-devel rubygems && \
 	gem install fpm
+
+# cleanup rpm cache
+RUN yum clean all && \
+	rm -rf /var/cache/yum
