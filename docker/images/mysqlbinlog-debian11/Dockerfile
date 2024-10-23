@@ -1,18 +1,12 @@
-FROM debian:9
+FROM debian:11
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
-
-# fix repos
-RUN sed -i '/stretch-updates/d' /etc/apt/sources.list; \
-	sed -i 's/deb.debian/archive.debian/' /etc/apt/sources.list; \
-	sed -i 's/security.debian/archive.debian/' /etc/apt/sources.list; \
-	sed -i 's/deb /deb [trusted=yes] /' /etc/apt/sources.list
 
 # dependencies
 RUN apt-get -y update && \
 	apt-get -y install \
 	libssl1.1 \
-	libboost-system1.62.0
+	libboost-system1.74.0
 
 # copy package from context
 COPY proxysql-mysqlbinlog_*.deb ./

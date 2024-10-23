@@ -1,18 +1,20 @@
-FROM debian:9
+FROM ubuntu:22.04
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
-# fix repos
-RUN sed -i '/stretch-updates/d' /etc/apt/sources.list; \
-	sed -i 's/deb.debian/archive.debian/' /etc/apt/sources.list; \
-	sed -i 's/security.debian/archive.debian/' /etc/apt/sources.list; \
-	sed -i 's/deb /deb [trusted=yes] /' /etc/apt/sources.list
-
 # dependencies
-RUN apt-get -y update && \
-	apt-get -y install \
-	libssl1.1 \
-	libboost-system1.62.0
+RUN apt update -y && \
+	apt install -y \
+	wget
+
+# install PPA:nrbrtx/libssl1
+RUN wget -O /etc/apt/keyrings/nrbrtx.asc 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x19bfcaf5168d33a9' && \
+	echo "deb [signed-by=/etc/apt/keyrings/nrbrtx.asc] https://ppa.launchpadcontent.net/nrbrtx/libssl1/ubuntu jammy main" > /etc/apt/sources.list.d/nrbrt.list
+
+# install libssl1.1
+RUN apt update && \
+	apt install -y \
+	libssl1.1
 
 # copy package from context
 COPY proxysql-mysqlbinlog_*.deb ./
