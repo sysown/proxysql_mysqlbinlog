@@ -1,0 +1,24 @@
+--- libslave/nanomysql.h	2025-03-18 22:43:00.849960426 +0200
++++ libslave/nanomysql.h.N	2025-03-18 22:47:05.232376800 +0200
+@@ -100,6 +100,8 @@
+         const unsigned int read_timeout = opts.mysql_read_timeout;
+         const unsigned int write_timeout = opts.mysql_write_timeout;
+         const unsigned int arg_off = SSL_MODE_DISABLED;
++		bool server_get_pubkey = 1;
++		
+         if (connect_timeout > 0)
+         {
+             mysql_options(connection, MYSQL_OPT_CONNECT_TIMEOUT, &connect_timeout);
+@@ -125,7 +127,11 @@
+                      , nullptr
+                      );
+ */
+-    mysql_options(connection, MYSQL_OPT_SSL_MODE, &arg_off);
++        mysql_options(connection, MYSQL_OPT_SSL_MODE, &arg_off);
++		
++        mysql_options(connection, MYSQL_OPT_GET_SERVER_PUBLIC_KEY, &server_get_pubkey);
++	
++	
+     }
+     Connection(const mysql_conn_opts& opts)
+     {
