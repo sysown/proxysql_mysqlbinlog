@@ -21,7 +21,7 @@ proxysql_binlog_reader: proxysql_binlog_reader.cpp libev/.libs/libev.a libdaemon
 libev/.libs/libev.a:
 	rm -rf libev-4.24 || true
 	tar -zxf libev-4.24.tar.gz
-	cd libev-4.24 && ./configure
+	cd libev && ./configure
 	cd libev && CC=${CC} CXX=${CXX} ${MAKE}
 
 libdaemon/libdaemon/.libs/libdaemon.a:
@@ -39,6 +39,7 @@ libslave/libslave.a:
 	patch -p0 < patches/libslave_ER_MALFORMED_GTID_SET_ENCODING.patch
 	patch -p0 < patches/libslave_SSL_MODE_DISABLED.patch
 	patch -p0 < patches/libslave_MySQL_8_new_events.patch
+	patch -p0 < patches/libslave_GET_SERVER_PUBLIC_KEY.patch
 	cd libslave && cmake .
 	cd libslave && make slave_a
 
