@@ -1,0 +1,11 @@
+--- libslave/Slave.cpp.orig	2025-09-18 11:12:52.642492261 +0530
++++ libslave/Slave.cpp	2025-09-18 11:14:50.434930780 +0530
+@@ -1081,7 +1081,7 @@
+     nanomysql::Connection conn(m_master_info.conn_options);
+     nanomysql::Connection::result_t res;
+ 
+-    static const std::string query = "SHOW MASTER STATUS";
++    const std::string query = (m_master_version >= 80400) ? "SHOW BINARY LOG STATUS" : "SHOW MASTER STATUS";
+     conn.query(query);
+     conn.store(res);
+ 
