@@ -1,6 +1,6 @@
-FROM proxysql/packaging:build-ubuntu20
+FROM proxysql/packaging:build-ubuntu20-v2.5.3
 
-MAINTAINER Miro Stauder <miro@proxysql.com>
+LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 # set git safe dir
 RUN git config --system --add safe.directory /opt/
@@ -16,6 +16,10 @@ RUN apt-get -y update && \
 	wget -q -O /usr/include/mysql/hash.h https://raw.githubusercontent.com/mysql/mysql-server/5.7/include/hash.h
 
 # fpm packaging
-RUN apt-get -y install ruby ruby-dev && \
-	gem install ffi && \
+RUN apt-get -y install ruby ruby-dev ruby-ffi ruby-dotenv && \
 	gem install fpm
+
+# clean apt cache
+RUN apt clean && \
+	rm -rf /var/cache/apt/* && \
+	rm -rf /var/lib/apt/lists/*

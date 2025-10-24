@@ -1,0 +1,63 @@
+--- libslave/slave_log_event.h.orig	2025-09-18 10:49:20.061707508 +0530
++++ libslave/slave_log_event.h	2025-09-18 10:56:19.486198282 +0530
+@@ -87,6 +87,21 @@
+ 
+   XA_PREPARE_LOG_EVENT= 38,
+ 
++  // UNSUPPORTED: MySQL 8.0+ events
++  // We only acknowledge the existence of these events, they remain UNSUPPORTED by this library.
++  // Source: https://github.com/mysql/mysql-server/blob/mysql-9.4.0/libs/mysql/binlog/event/binlog_event.h#L360
++  // ========================================================================
++
++  PARTIAL_UPDATE_ROWS_EVENT= 39,
++
++  TRANSACTION_PAYLOAD_EVENT= 40,
++
++  HEARTBEAT_LOG_EVENT_V2= 41,
++
++  GTID_TAGGED_LOG_EVENT = 42,
++
++  // ========================================================================
++
+   ENUM_END_EVENT
+ };
+ 
+--- libslave/slave_log_event.cpp.orig	2025-09-18 12:58:07.521655897 +0530
++++ libslave/slave_log_event.cpp	2025-09-18 13:07:31.860693231 +0530
+@@ -234,11 +234,15 @@
+     check_format_description_postlen(event_lens, ROTATE_EVENT, ROTATE_HEADER_LEN);
+     check_format_description_postlen(event_lens, FORMAT_DESCRIPTION_EVENT, START_V3_HEADER_LEN + 1 + number_of_event_types);
+     check_format_description_postlen(event_lens, TABLE_MAP_EVENT, TABLE_MAP_HEADER_LEN);
+-    check_format_description_postlen(event_lens, WRITE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
+-    check_format_description_postlen(event_lens, UPDATE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
+-    check_format_description_postlen(event_lens, DELETE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
+-    if (master_ge_56)
+-    {
++
++    if (!master_ge_56) {
++        // The V1 events are used from 5.1.16 until mysql-5.6.
++        // Not generated since 8.2.0, and rejected by the applier since 8.4.0
++        // Source: https://github.com/mysql/mysql-server/blob/8.4/libs/mysql/binlog/event/binlog_event.h#L320
++        check_format_description_postlen(event_lens, WRITE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
++        check_format_description_postlen(event_lens, UPDATE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
++        check_format_description_postlen(event_lens, DELETE_ROWS_EVENT_V1, ROWS_HEADER_LEN_V1);
++    } else {
+         check_format_description_postlen(event_lens, WRITE_ROWS_EVENT, ROWS_HEADER_LEN);
+         check_format_description_postlen(event_lens, UPDATE_ROWS_EVENT, ROWS_HEADER_LEN);
+         check_format_description_postlen(event_lens, DELETE_ROWS_EVENT, ROWS_HEADER_LEN);
+@@ -364,6 +368,15 @@
+     case TRANSACTION_CONTEXT_EVENT:
+     case VIEW_CHANGE_EVENT:
+     case XA_PREPARE_LOG_EVENT:
++    // UNSUPPORTED: MySQL 8.0+ events
++    // We only acknowledge the existence of these events, they remain UNSUPPORTED by this library.
++    // Source: https://github.com/mysql/mysql-server/blob/mysql-9.4.0/libs/mysql/binlog/event/binlog_event.h#L360
++    // ========================================================================
++    case PARTIAL_UPDATE_ROWS_EVENT:
++    case TRANSACTION_PAYLOAD_EVENT:
++    case HEARTBEAT_LOG_EVENT_V2:
++    case GTID_TAGGED_LOG_EVENT:
++    // ========================================================================
+         if (event_stat)
+             event_stat->tickOther();
+         return false;

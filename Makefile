@@ -38,14 +38,15 @@ libslave/libslave.a:
 	patch -p0 < patches/libslave_DBUG_ASSERT.patch
 	patch -p0 < patches/libslave_ER_MALFORMED_GTID_SET_ENCODING.patch
 	patch -p0 < patches/libslave_SSL_MODE_DISABLED.patch
-	patch -p0 < patches/libslave_MySQL_8_new_events.patch
+	patch -p0 < patches/libslave_new_binlog_events.patch
+	patch -p0 < patches/libslave_show_master_status_deprecated.patch
 	cd libslave && cmake .
 	cd libslave && make slave_a
 
 
 
 .PHONY: build
-build: build-ubuntu16 build-ubuntu18 build-ubuntu20 build-debian9 build-debian10 build-debian11 build-centos7 build-centos8
+build: build-ubuntu16 build-ubuntu18 build-ubuntu20 build-ubuntu22 build-debian9 build-debian10 build-debian11 build-centos7 build-centos8
 
 
 # universal distro target
@@ -60,10 +61,10 @@ build-%: PKG_VERS=$(shell echo ${GIT_VERSION} | grep -Po '(?<=^v|^)[\d\.]+')
 build-%:
 	echo 'building $@'
 #	build in docker-compose.yml has templating bug, make the image here
-	cd ./docker/build/ && ${MAKE} build-${IMG_NAME}
+#	cd ./docker/build/ && ${MAKE} build-${IMG_NAME}
 #	docker run --rm -v "$(shell pwd)":/opt/proxysql_mysqlbinlog proxysql/packaging:build-$(IMG_NAME) /opt/proxysql_mysqlbinlog/docker/entrypoint-$(PKG_TYPE)/entrypoint.bash
-	IMG_NAME=$(IMG_NAME) PKG_TYPE=$(PKG_TYPE) PKG_VERS=$(PKG_VERS) GIT_VERS=$(GIT_VERSION) docker-compose -p $(IMG_NAME) up mysqlbinlog
-	docker-compose -p $(IMG_NAME) rm -f
+	IMG_NAME=$(IMG_NAME) PKG_TYPE=$(PKG_TYPE) PKG_VERS=$(PKG_VERS) GIT_VERS=$(GIT_VERSION) docker compose -p $(IMG_NAME) up mysqlbinlog
+	docker compose -p $(IMG_NAME) rm -f
 
 
 

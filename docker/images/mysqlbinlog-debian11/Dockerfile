@@ -1,4 +1,4 @@
-FROM debian:10
+FROM debian:11
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
@@ -6,7 +6,7 @@ LABEL authors="Miro Stauder <miro@proxysql.com>"
 RUN apt-get -y update && \
 	apt-get -y install \
 	libssl1.1 \
-	libboost-system1.67.0
+	libboost-system1.74.0
 
 # copy package from context
 COPY proxysql-mysqlbinlog_*.deb ./

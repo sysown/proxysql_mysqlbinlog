@@ -1,6 +1,6 @@
 FROM ubuntu:18.04
 
-MAINTAINER Miro Stauder <miro@proxysql.com>
+LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 # dependencies
 RUN apt-get -y update && \

@@ -1,6 +1,12 @@
 FROM debian:9
 
-MAINTAINER Miro Stauder <miro@proxysql.com>
+LABEL authors="Miro Stauder <miro@proxysql.com>"
+
+# fix repos
+RUN sed -i '/stretch-updates/d' /etc/apt/sources.list; \
+	sed -i 's/deb.debian/archive.debian/' /etc/apt/sources.list; \
+	sed -i 's/security.debian/archive.debian/' /etc/apt/sources.list; \
+	sed -i 's/deb /deb [trusted=yes] /' /etc/apt/sources.list
 
 # dependencies
 RUN apt-get -y update && \
