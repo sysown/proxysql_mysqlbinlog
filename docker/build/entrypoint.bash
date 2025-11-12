@@ -25,19 +25,17 @@ echo "==> Epoch: ${SOURCE_DATE_EPOCH}"
 
 echo "==> Cleaning"
 make cleanbuild
-#make cleanall
 
 echo "==> Building"
 make -j $(ncpu)
 
 echo "==> Packaging"
-cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${IMG_NAME}
-ls -l binaries/
+cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${PKG_DIST}
 
 fpm \
 	--debug \
 	-s dir \
-	-t ${PKG_TYPE} \
+	-t ${PKG_KIND} \
 	--version ${PKG_VERS} \
 	--source-date-epoch-default ${SOURCE_DATE_EPOCH} \
 	--architecture native \
@@ -55,9 +53,9 @@ fpm \
 	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/
 
 
-if [[ "${PKG_TYPE}" = "deb" ]]; then
-	mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${GIT_VERS#v}-${IMG_NAME}_${ARCH}.deb
+if [[ "${PKG_KIND}" = "deb" ]]; then
+	mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${GIT_VERS#v}-${PKG_DIST}_${ARCH}.deb
 else
-	mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${GIT_VERS#v}-${IMG_NAME}.${ARCH}.rpm
+	mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${GIT_VERS#v}-1-${PKG_DIST}.${ARCH}.rpm
 fi
 ls -l binaries/

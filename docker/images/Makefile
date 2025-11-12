@@ -3,13 +3,30 @@
 NPROCS := $(shell nproc)
 export MAKEFLAGS=-j ${NPROCS}
 
+# default multiarch
+#MULTIARCH := 1
+
+ifdef NOMULTIARCH
+override undefine MULTIARCH
+endif
+
+ifdef LOAD
+override LOAD := --load
+override undefine MULTIARCH
+endif
+
 ifdef PUSH
-override PUSH=--push
+override PUSH := --push
 endif
 
 ifdef SILENT
-override SILENT=-q
+override SILENT := -q
 endif
+
+ifdef NOCACHE
+override NOCACHE := --no-cache
+endif
+
 
 GIT_VERSION=$(shell git describe --long --abbrev=7)
 VER=$(shell git describe --long --abbrev=7 | cut -d- -f1)
@@ -18,13 +35,19 @@ VER=$(shell git describe --long --abbrev=7 | cut -d- -f1)
 .PHONY: default
 default: mysqlbinlog
 
-.PHONY: clean
-clean:
-	docker images -a | grep 'proxysql/proxysql-mysqlbinlog' | awk '{print $$3}' | sort | uniq | xargs -r docker rmi -f
+
+.PHONY: cleanimg
+cleanimg:
+	docker images -a | grep 'proxysql/proxysql-mysqlbinlog' | grep -v 'build-' | awk '{print $$3}' | sort | uniq | xargs -r docker rmi -f
+
+.PHONY: cleanbuild
+cleanbuild:
+	rm -f mysqlbinlog-*/proxysql-mysqlbinlog* || true
 
 .PHONY: cleanall
-cleanall:
+cleanall: cleanimg cleanbuild
 	docker system prune -a
+	docker buildx prune -a
 
 
 .PHONY: mysqlbinlog
@@ -44,30 +67,34 @@ mysqlbinlog-ubuntu:
 	make $(wildcard mysqlbinlog-ubuntu*)
 
 
+DFLTDST := debian
+#PLTFRMS := linux/arm64/v8,linux/amd64
+PLTFRMS := linux/amd64
+
 .SILENT:
 .PHONY: mysqlbinlog-*
 mysqlbinlog-*: DIST=$(patsubst mysqlbinlog-%,%,$@)
-mysqlbinlog-*: TAGV=$(shell echo "${VER}-${DIST}")
-mysqlbinlog-*: TAGL=$(shell echo "latest-${DIST}")
+mysqlbinlog-*: TAGV=$(if $(findstring $(DFLTDST),$@),-t proxysql/proxysql-mysqlbinlog:${VER},)
+mysqlbinlog-*: TAGL=$(if $(findstring $(DFLTDST),$@),-t proxysql/proxysql-mysqlbinlog:latest,)
+mysqlbinlog-*: TAGVD=-t proxysql/proxysql-mysqlbinlog:${VER}-${DIST}
+mysqlbinlog-*: TAGLD=-t proxysql/proxysql-mysqlbinlog:latest-${DIST}
 mysqlbinlog-*:
-	echo 'building $@'
-	rm -f ./$@/proxysql-mysqlbinlog*$(DIST)*
-	cp ../../binaries/proxysql-mysqlbinlog*$(DIST)* ./$@/
+	rm -f ./$@/proxysql-mysqlbinlog*
+	cp ../../binaries/proxysql-mysqlbinlog*${VER}*$(DIST)* ./$@/
 ifndef MULTIARCH
 	# build for local only
-	docker build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${PUSH} ${SILENT}
+	@echo "building native $@ for 'native'"
+	docker build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull $@ ${PUSH} ${SILENT}
 endif
 ifdef MULTIARCH
 	# try building both amd64 and arm64, fallback to native
-#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull --platform linux/arm64/v8,linux/amd64 $@ ${PUSH} ${SILENT} || \
-#	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) --pull $@ ${PUSH} ${SILENT}
-	docker buildx build -t proxysql/proxysql-mysqlbinlog:$(TAGV) -t proxysql/proxysql-mysqlbinlog:$(TAGL) -t proxysql/proxysql-mysqlbinlog:latest --pull $@ ${PUSH} ${SILENT}
+	@echo "building multiarch $@ for '$(PLTFRMS)'"
+	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull --platform ${PLTFRMS} $@ ${PUSH} ${SILENT} || \
+	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull $@ ${PUSH} ${SILENT}
 endif
-	echo 'tagged $@'
+	@echo 'tagged $@'
 
 
-
-.ONESHELL: images
-images:
-	echo 'Finished building'
-	docker images | grep "proxysql/proxysql-mysqlbinlog"
+.PHONY: imglist
+imglist:
+	docker images | grep 'proxysql/proxysql-mysqlbinlog' | grep -v 'build-' || true
