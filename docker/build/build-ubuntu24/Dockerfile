@@ -1,4 +1,4 @@
-FROM proxysql/packaging:build-ubuntu22-v3.0.3
+FROM proxysql/packaging:build-ubuntu24-v3.0.3
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
