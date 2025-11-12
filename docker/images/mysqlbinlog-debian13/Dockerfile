@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM debian:13
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
