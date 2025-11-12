@@ -7,10 +7,9 @@ services:
       - ./docker/build/:/opt/entrypoint/
       - ./:/opt/proxysql_mysqlbinlog/
     environment:
-      - IMG_NAME=${IMG_NAME}
-      - PKG_NAME=${PKG_NAME}
+      - PKG_DIST=${PKG_DIST}
       - PKG_VERS=${PKG_VERS}
-      - PKG_TYPE=${PKG_TYPE}
+      - PKG_KIND=${PKG_KIND}
       - GIT_VERS=${GIT_VERS}
     command:
       - /opt/entrypoint/entrypoint.bash
