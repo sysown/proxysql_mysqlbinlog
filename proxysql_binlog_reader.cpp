@@ -568,7 +568,7 @@ void bench_xid_callback(unsigned int server_id) {
 
 	const char *uuid=sl->gtid_next.first.c_str();
 	uint64_t trx_id = sl->gtid_next.second;
-	if (last_trx_id == trx_id && strcmp(last_server_uuid, uuid)) {
+	if (last_trx_id == trx_id && !strcmp(last_server_uuid, uuid)) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
 		return;
