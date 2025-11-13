@@ -355,6 +355,20 @@ class Client_Data {
 	}
 };
 
+void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
+	Client_Data * custom_data = (Client_Data *)watcher->data;
+	bool rc = custom_data->writeout();
+	if (rc == false) {
+		std::vector<struct ev_io *>::iterator it;
+		it = std::find(Clients.begin(), Clients.end(), watcher);
+		if (it != Clients.end()) {
+			Clients.erase(it);
+		}
+		delete custom_data;
+		free(watcher);
+	}
+}
+
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
 	it = std::find(Clients.begin(), Clients.end(), watcher);
@@ -380,6 +394,14 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	delete custom_data;
 	watcher->data = NULL;
 	free(watcher);
+}
+
+void io_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
+	if ((EV_READ & revents) || (EV_ERROR & revents)) {
+		read_cb(loop, watcher, revents);
+	} else if (EV_WRITE & revents) {
+		write_cb(loop, watcher, revents);
+	}
 }
 
 void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
@@ -425,7 +447,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		}
 	}
 	client->data = (void *)custom_data;
-	ev_io_init(client, read_cb, client_sd, EV_READ);
+	ev_io_init(client, io_cb, client_sd, EV_READ);
 	ev_io_start(loop, client);
 	pthread_mutex_lock(&pos_mutex);
 	std::string s1 = gtid_executed_to_string(curpos);
