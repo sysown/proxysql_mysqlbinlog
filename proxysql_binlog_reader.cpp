@@ -330,17 +330,17 @@ class Client_Data {
 			}
 		}
 
-		int new_events = EV_READ;
-		if (len) {
-			new_events |= EV_WRITE;
-		}
-		if (new_events != w->events) {
-			ev_io_stop(loop, w);
-			ev_io_set(w, w->fd, new_events);
-			ev_io_start(loop, w);
-		}
-
-		if (ret == false) {
+		if (ret) {
+			int new_events = EV_READ;
+			if (len) {
+				new_events |= EV_WRITE;
+			}
+			if (new_events != w->events) {
+				ev_io_stop(loop, w);
+				ev_io_set(w, w->fd, new_events);
+				ev_io_start(loop, w);
+			}
+		} else {
 			ev_io_stop(loop,w);
 			shutdown(w->fd,SHUT_RDWR);
 			close(w->fd);
@@ -425,8 +425,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::string s1 = gtid_executed_to_string(curpos);
 	pthread_mutex_unlock(&pos_mutex);
 	custom_data->add_string("ST=" + s1 + "\n");
-	bool ret = custom_data->writeout();
-	if (ret) {
+	if (custom_data->writeout()) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
@@ -559,7 +558,7 @@ class GTID_Server_Dumper {
 	~GTID_Server_Dumper() {
 		close(sd);
 	}
-};
+}
 
 
 
