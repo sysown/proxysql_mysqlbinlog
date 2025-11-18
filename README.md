@@ -64,6 +64,8 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
 + `-t`: optional update throttling, in milliseconds
++ `-B`: Optional maximum network buffer size, in bytes
+
 
 #### Configuration
 

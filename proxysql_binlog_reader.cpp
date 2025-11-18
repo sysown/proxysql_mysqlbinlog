@@ -35,14 +35,14 @@
   ioctl(fd, FIONBIO, (char *)&ioctl_mode); \
 }
 
-void proxy_error_func(const char *fmt, ...) {
+void proxy_log_func(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
 };
 
-#define proxy_info(fmt, ...) \
+#define proxy_log(level, fmt, ...) \
 	do { \
 		time_t __timer; \
 		char __buffer[25]; \
@@ -50,14 +50,19 @@ void proxy_error_func(const char *fmt, ...) {
 		time(&__timer); \
 		__tm_info = localtime(&__timer); \
 		strftime(__buffer, 25, "%Y-%m-%d %H:%M:%S", __tm_info); \
-		proxy_error_func("%s [INFO] " fmt , __buffer , ## __VA_ARGS__); \
-	} while(0)
+		proxy_log_func("%s [" level "] " fmt , __buffer , ## __VA_ARGS__); \
+	} while(0);
 
-#define DEFAULT_ERRORLOG     "/tmp/proxysql_mysqlbinlog.log"
-#define DEFAULT_MYSQL_PORT   3306
-#define DEFAULT_LISTEN_PORT  6020
-#define NETBUFLEN            256
-#define WRITE_CHUNKLEN       4096
+#define proxy_info(fmt, ...)   proxy_log("INFO", fmt, ## __VA_ARGS__);
+#define proxy_error(fmt, ...)  proxy_log("ERROR", fmt, ## __VA_ARGS__);
+
+#define NETBUFLEN                        256
+#define WRITE_CHUNKLEN                   4096
+#define DEFAULT_ERRORLOG                 "/tmp/proxysql_mysqlbinlog.log"
+#define DEFAULT_MYSQL_PORT               3306
+#define DEFAULT_LISTEN_PORT              6020
+#define DEFAULT_MAX_NETBUFLEN_STREAMING  (8 * NETBUFLEN)
+#define DEFAULT_MAX_NETBUFLEN_BATCHED    (8192 * NETBUFLEN)
 
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
@@ -86,6 +91,7 @@ uint64_t last_trx_id = 0;
 char *errorlog = NULL;
 bool foreground = false;
 unsigned int listen_port = DEFAULT_LISTEN_PORT;
+size_t max_netbuflen = 0;
 uint64_t update_freq_ms = 0;
 
 static const char * proxysql_binlog_pid_file() {
@@ -323,7 +329,7 @@ class Client_Data {
 					(rc==0) ||
 					(rc==-1 && myerr != EINTR && myerr != EAGAIN)
 				) {
-					proxy_info("failed to write %d/%d bytes to client FD %d, error %d", chunk, len-pos, w->fd, errno);
+					proxy_error("failed to write %d/%d bytes to client FD %d, error %d", chunk, len-pos, w->fd, errno);
 					ret = false;
 					break;
 				}
@@ -429,7 +435,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
-		proxy_info("Error accepting client with FD %d\n", client->fd);
+		proxy_error("Error accepting client with FD %d\n", client->fd);
 		delete custom_data;
 		free(client);
 	}
@@ -453,8 +459,9 @@ void write_clients() {
 			delete custom_data;
 			to_remove.push_back(w);
 		} else {
-			// Close connection if we write on every GTID update and the queue grows too big.
-			if (!update_freq_ms && custom_data->max_len > 8 * NETBUFLEN) {
+			// Close connection if the write queue grows too big.
+			if (custom_data->size > max_netbuflen) {
+				proxy_error("network write buffer grew too big (%zu/%zu bytes, max %zu)", custom_data->size, custom_data->max_len, max_netbuflen);
 				ev_io_stop(loop,w);
 				shutdown(w->fd,SHUT_RDWR);
 				close(w->fd);
@@ -558,7 +565,7 @@ class GTID_Server_Dumper {
 	~GTID_Server_Dumper() {
 		close(sd);
 	}
-}
+};
 
 
 
@@ -622,7 +629,8 @@ void usage(const char* name) {
 	"\n"
 	"Optional arguments:\n"
 	"\n"
-	"-L: Log file path (default " DEFAULT_ERRORLOG ").\n"
+	"-B: Maximum network buffer size, in bytes (default " << DEFAULT_MAX_NETBUFLEN_STREAMING << ", " << DEFAULT_MAX_NETBUFLEN_BATCHED << " for -t).\n"
+	"-L: Log file path (default " << DEFAULT_ERRORLOG << ").\n"
 	"-P: MySQL port (default " << DEFAULT_MYSQL_PORT << ").\n"
 	"-p: MySQL password.\n"
 	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
@@ -647,8 +655,9 @@ int main(int argc, char** argv) {
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vft:h:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vfB:t:h:u:p:P:l:L:"))) {
 		switch (c) {
+			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
 			case 'u': user = optarg; break;
@@ -673,6 +682,9 @@ int main(int argc, char** argv) {
 		errorlog = (char *)DEFAULT_ERRORLOG;
 	} else {
 		errorlog = strdup(errorstr.c_str());
+	}
+	if (!max_netbuflen) {
+		max_netbuflen = size_t(update_freq_ms ? DEFAULT_MAX_NETBUFLEN_STREAMING : DEFAULT_MAX_NETBUFLEN_BATCHED);
 	}
 
 	if (host.empty() || user.empty())
