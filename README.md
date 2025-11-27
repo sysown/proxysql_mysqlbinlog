@@ -39,12 +39,14 @@ executable and package can be found in `./binaries`
 
 Ready to use v2.2 docker containers:
 
-- 2.2-centos10 == centos10 == centos = latest-centos
+- 2.2-centos10 == centos10 == centos
 - 2.2-centos9 == centos9
-- 2.2-debian13 == debian13 == debian == latest-debian == latest == 2.2
+- 2.2-debian13 == debian13 == debian == latest == 2.2
 - 2.2-debian12 == debian12
-- 2.2-ubuntu24 == ubuntu24 = ubuntu = latest-ubuntu
+- 2.2-ubuntu24 == ubuntu24 = ubuntu
 - 2.2-ubuntu22 == ubuntu22
+
+Semantic tag versioning is used, ommited version implies latest.
 
 https://hub.docker.com/r/proxysql/proxysql-mysqlbinlog
 
