@@ -28,8 +28,11 @@ override NOCACHE := --no-cache
 endif
 
 
-GIT_VERSION=$(shell git describe --long --abbrev=7)
-VER=$(shell git describe --long --abbrev=7 | cut -d- -f1)
+GIT_VERSION := $(shell git describe --long --abbrev=7)
+VERS ?= $(shell git describe --long --abbrev=7 | cut -d- -f1)
+ifeq ($(wildcard ../../binaries/proxysql-mysqlbinlog-${VERS}-*),)
+    $(error VERS=${VERS} ERROR: packages are not built)
+endif
 
 
 .PHONY: default
@@ -51,46 +54,56 @@ cleanall: cleanimg cleanbuild
 
 
 .PHONY: mysqlbinlog
-mysqlbinlog: $(wildcard mysqlbinlog-*)
+mysqlbinlog: $(sort $(wildcard mysqlbinlog-*))
 
 
 .PHONY: mysqlbinlog-centos
 mysqlbinlog-centos:
-	make $(wildcard mysqlbinlog-centos*)
+	make $(sort $(wildcard mysqlbinlog-centos*))
 
 .PHONY: mysqlbinlog-debian
 mysqlbinlog-debian:
-	make $(wildcard mysqlbinlog-debian*)
+	make $(sort $(wildcard mysqlbinlog-debian*))
 
 .PHONY: mysqlbinlog-ubuntu
 mysqlbinlog-ubuntu:
-	make $(wildcard mysqlbinlog-ubuntu*)
+	make $(sort $(wildcard mysqlbinlog-ubuntu*))
 
 
-DFLTDST := debian13
+# get latest version of each distro
+LTSTCEN := $(shell echo $(wildcard mysqlbinlog-centos*) | sed 's/ /\n/g' | sort -V | tail -1)
+LTSTDEB := $(shell echo $(wildcard mysqlbinlog-debian*) | sed 's/ /\n/g' | sort -V | tail -1)
+LTSTUBU := $(shell echo $(wildcard mysqlbinlog-ubuntu*) | sed 's/ /\n/g' | sort -V | tail -1)
+# latest version of each distro
+LTSTDST := ${LTSTCEN} ${LTSTDEB} ${LTSTUBU}
+# latest is latest debian
+DFLTDST := ${LTSTDEB}
 #PLTFRMS := linux/arm64/v8,linux/amd64
 PLTFRMS := linux/amd64
 
 .SILENT:
 .PHONY: mysqlbinlog-*
 mysqlbinlog-*: DIST=$(patsubst mysqlbinlog-%,%,$@)
-mysqlbinlog-*: TAGV=$(if $(findstring $(DFLTDST),$@),-t proxysql/proxysql-mysqlbinlog:${VER},)
-mysqlbinlog-*: TAGL=$(if $(findstring $(DFLTDST),$@),-t proxysql/proxysql-mysqlbinlog:latest,)
-mysqlbinlog-*: TAGVD=-t proxysql/proxysql-mysqlbinlog:${VER}-${DIST}
-mysqlbinlog-*: TAGLD=-t proxysql/proxysql-mysqlbinlog:latest-${DIST}
+mysqlbinlog-*: DISTN=$(shell echo ${DIST} | grep -Po '[a-z]+')
+mysqlbinlog-*: TAGV=$(if $(findstring ${DIST},$(DFLTDST)),-t proxysql/proxysql-mysqlbinlog:${VERS},)
+mysqlbinlog-*: TAGL=$(if $(findstring ${DIST},$(DFLTDST)),-t proxysql/proxysql-mysqlbinlog:latest,)
+mysqlbinlog-*: TAGD=-t proxysql/proxysql-mysqlbinlog:${DIST}
+mysqlbinlog-*: TAGVD=-t proxysql/proxysql-mysqlbinlog:${VERS}-${DIST}
+mysqlbinlog-*: TAGDN=$(if $(findstring ${DIST},$(LTSTDST)),-t proxysql/proxysql-mysqlbinlog:${DISTN},)
+mysqlbinlog-*: TAGVDN=$(if $(findstring ${DIST},$(LTSTDST)),-t proxysql/proxysql-mysqlbinlog:${VERS}-${DISTN},)
 mysqlbinlog-*:
 	rm -f ./$@/proxysql-mysqlbinlog*
-	cp ../../binaries/proxysql-mysqlbinlog*${VER}*$(DIST)* ./$@/
+	cp ../../binaries/proxysql-mysqlbinlog*${VERS}*$(DIST)* ./$@/
 ifndef MULTIARCH
 	# build for local only
-	@echo "building native $@ for 'native'"
-	docker build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull $@ ${PUSH} ${SILENT}
+	@echo "building native $@ for 'native' using package '$$(cd ./$@/; ls -1 proxysql-mysqlbinlog*)'"
+	docker build ${NOCACHE} ${TAGV} ${TAGL} ${TAGD} ${TAGVD} ${TAGDN} ${TAGVDN} --pull $@ ${PUSH} ${SILENT}
 endif
 ifdef MULTIARCH
 	# try building both amd64 and arm64, fallback to native
-	@echo "building multiarch $@ for '$(PLTFRMS)'"
-	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull --platform ${PLTFRMS} $@ ${PUSH} ${SILENT} || \
-	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGVD} ${TAGLD} --pull $@ ${PUSH} ${SILENT}
+	@echo "building multiarch $@ for '$(PLTFRMS)' using package '$$(cd ./$@/; ls -1 proxysql-mysqlbinlog*)'"
+	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGD} ${TAGVD} ${TAGDN} ${TAGVDN} --pull --platform ${PLTFRMS} $@ ${PUSH} ${SILENT} || \
+	docker buildx build ${NOCACHE} ${TAGV} ${TAGL} ${TAGD} ${TAGVD} ${TAGDN} ${TAGVDN} --pull $@ ${PUSH} ${SILENT}
 endif
 	@echo 'tagged $@'
 
