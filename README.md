@@ -7,44 +7,48 @@ https://www.proxysql.com/blog/proxysql-gtid-causal-reads
 
 ### Requirements
 
-building requires docker.io, install as per instructions:
+- bulding natively requires a proper build enviroment, consult your distro documentation.
+- building packages requires `docker compose`, builds inside a docker container
+- building docker images requires `docker buildx`
+
+install docker as per instructions:
 
 https://docs.docker.com/engine/install/
 
 ### Building
 
-Currently supported targets are:
+Currently supported distros are:
 
-- build
-  - build-centos
-    - build-centos7
-    - build-centos8
-  - build-debian
-    - build-debian9
-    - build-debian10
-    - build-debian11
-  - build-ubuntu
-    - build-ubuntu16
-    - build-ubuntu18
-    - build-ubuntu20
+- CentOS 10, 9, 8, 7
+- Debian 13, 12, 11, 10, 9
+- Ubuntu 24, 22, 20, 18, 16
 
-to build do:
+e.g.: to build an executable and a package for Ubuntu 24 do:
 ```
 cd proxysql_mysqlbinlog
-make build-ubuntu18
+make ubuntu24
 ```
 
 executable and package can be found in `./binaries`
 ```
--rw-r--r-- 1 root root 1679864 May  2 15:56 proxysql-mysqlbinlog_2.0-0-g663ab16-ubuntu18_amd64.deb
--rwxr-xr-x 1 root root 5717720 May  2 15:54 proxysql_binlog_reader-2.0-0-g663ab16-ubuntu18
+-rw-r--r-- 1 root root 1679864 Nov  24 15:56 proxysql-mysqlbinlog_2.2-13-g12758a2-ubuntu24_amd64.deb
+-rwxr-xr-x 1 root root 5717720 Nov  24 15:54 proxysql_binlog_reader-2.2-13-g12758a2-ubuntu24
 ```
 
 ### Containers
 
-Ready to use docker containers:
+Ready to use v2.2 docker containers:
+
+- latest-centos10 == 2.2-centos10
+- latest-centos9 == 2.2-centos9
+- latest-debian13 == 2.2-debian13 == latest == 2.2
+- latest-debian12 == 2.2-debian12
+- latest-ubuntu24 == 2.2-ubuntu24
+- latest-ubuntu22 == 2.2-ubuntu22
 
 https://hub.docker.com/r/proxysql/proxysql-mysqlbinlog
+
+use `docker pull proxysql/proxysql-mysqlbinlog:latest` to pull the latest docker image
 
 ### HowTo
 
