@@ -67,7 +67,7 @@ mysqlbinlog-ubuntu:
 	make $(wildcard mysqlbinlog-ubuntu*)
 
 
-DFLTDST := debian
+DFLTDST := debian13
 #PLTFRMS := linux/arm64/v8,linux/amd64
 PLTFRMS := linux/amd64
 
