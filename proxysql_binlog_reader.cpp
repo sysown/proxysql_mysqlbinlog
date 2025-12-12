@@ -35,14 +35,14 @@
   ioctl(fd, FIONBIO, (char *)&ioctl_mode); \
 }
 
-void proxy_error_func(const char *fmt, ...) {
+void proxy_log_func(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
 	va_end(ap);
 };
 
-#define proxy_info(fmt, ...) \
+#define proxy_log(level, fmt, ...) \
 	do { \
 		time_t __timer; \
 		char __buffer[25]; \
@@ -50,11 +50,20 @@ void proxy_error_func(const char *fmt, ...) {
 		time(&__timer); \
 		__tm_info = localtime(&__timer); \
 		strftime(__buffer, 25, "%Y-%m-%d %H:%M:%S", __tm_info); \
-		proxy_error_func("%s [INFO] " fmt , __buffer , ## __VA_ARGS__); \
-	} while(0)
+		proxy_log_func("%s [" level "] " fmt , __buffer , ## __VA_ARGS__); \
+	} while(0);
 
+#define proxy_info(fmt, ...)   proxy_log("INFO", fmt, ## __VA_ARGS__);
+#define proxy_error(fmt, ...)  proxy_log("ERROR", fmt, ## __VA_ARGS__);
 
-unsigned int listen_port = 6020;
+#define NETBUFLEN                        256
+#define WRITE_CHUNKLEN                   4096
+#define DEFAULT_ERRORLOG                 "/tmp/proxysql_mysqlbinlog.log"
+#define DEFAULT_MYSQL_PORT               3306
+#define DEFAULT_LISTEN_PORT              6020
+#define DEFAULT_MAX_NETBUFLEN_STREAMING  (8 * NETBUFLEN)
+#define DEFAULT_MAX_NETBUFLEN_BATCHED    (8192 * NETBUFLEN)
+
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
 
@@ -68,7 +77,6 @@ std::string gtid_executed_to_string(slave::Position &curpos);
 
 static struct ev_loop *loop;
 
-#define NETBUFLEN 256
 volatile sig_atomic_t stopflag = 0;
 slave::Slave* sl = NULL;
 
@@ -77,11 +85,14 @@ slave::Position curpos;
 int pipefd[2];
 
 char last_server_uuid[256];
-uint64_t last_trxid = 0;
+uint64_t last_trx_id = 0;
 
-bool foreground = false;
-
+// Global arguments
 char *errorlog = NULL;
+bool foreground = false;
+unsigned int listen_port = DEFAULT_LISTEN_PORT;
+size_t max_netbuflen = 0;
+uint64_t update_freq_ms = 0;
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -252,6 +263,7 @@ class Client_Data {
 	public:
 	char *data;
 	size_t len;
+	size_t max_len;
 	size_t size;
 	size_t pos;
 	struct ev_io *w;
@@ -264,6 +276,7 @@ class Client_Data {
 		uuid_server[0] = 0;
 		pos = 0;
 		len = 0;
+		max_len = 0;
 		ip = strdup("unknown");
 	}
 	void resize(size_t _s) {
@@ -275,10 +288,17 @@ class Client_Data {
 	}
 	void add_string(const char *_ptr, size_t _s) {
 		if (size < len + _s) {
-			resize(len + ( _s < 50 ? _s * 10 : _s));
+			// Round up size to n-times NETBUFLEN
+			size_t new_s = len + _s;
+			new_s = ((new_s / NETBUFLEN) + (new_s % NETBUFLEN != 0 ? 1 : 0)) * NETBUFLEN;
+			resize(new_s);
 		}
 		memcpy(data+len,_ptr,_s);
 		len += _s;
+		if (len > max_len) max_len = len;
+	}
+	void add_string(std::string s) {
+		add_string(s.c_str(), s.size());
 	}
 	~Client_Data() {
 		if (ip) free(ip);
@@ -289,21 +309,34 @@ class Client_Data {
 		ip = (char *)malloc(strlen(a)+16);
 		sprintf(ip,"%s:%d",a,p);
 	}
- 
+
 	bool writeout() {
 		bool ret = true;
-		if (len==0) {
-			return ret;
-		}
-		int rc = 0;
-		rc = write(w->fd,data+pos,len-pos);
-		if (rc > 0) {
-			pos += rc;
-			if (pos >= len/2) {
-				memmove(data,data+pos,len-pos);
-				len = len-pos;
-				pos = 0;
+		while (len) {
+			size_t chunk = len-pos;
+			if (chunk > WRITE_CHUNKLEN) { chunk = WRITE_CHUNKLEN; }
+			int rc = write(w->fd,data+pos,chunk);
+			if (rc > 0) {
+				pos += rc;
+				if (pos >= len/2) {
+					memmove(data,data+pos,len-pos);
+					len -= pos;
+					pos = 0;
+				}
+			} else {
+				int myerr = errno;
+				if (
+					(rc==0) ||
+					(rc==-1 && myerr != EINTR && myerr != EAGAIN)
+				) {
+					proxy_error("failed to write %d/%d bytes to client FD %d, error %d", chunk, len-pos, w->fd, errno);
+					ret = false;
+					break;
+				}
 			}
+		}
+
+		if (ret) {
 			int new_events = EV_READ;
 			if (len) {
 				new_events |= EV_WRITE;
@@ -314,43 +347,13 @@ class Client_Data {
 				ev_io_start(loop, w);
 			}
 		} else {
-			int myerr = errno;
-			if (
-				(rc==0) ||
-				(rc==-1 && myerr != EINTR && myerr != EAGAIN)
-			) {
-				ret = false;
-			}
-		}
-		if (ret == false) {
-			//std::vector<struct ev_io *>::iterator it;
-			//it = std::find(Clients.begin(), Clients.end(), w);
-			//if (it != Clients.end()) {
-			//	proxy_info("Remove client with FD %d\n" , w->fd);
-			//	Clients.erase(it);
-				ev_io_stop(loop,w);
-				shutdown(w->fd,SHUT_RDWR);
-				close(w->fd);
-				//Client_Data *custom_data = (Client_Data *)watcher->data;
-				//delete custom_data;
-				//watcher->data = NULL;
-				//free(w);
-			//}
+			ev_io_stop(loop,w);
+			shutdown(w->fd,SHUT_RDWR);
+			close(w->fd);
 		}
 		return ret;
 	}
 };
-
-/*
-void write_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-	Client_Data * custom_data = (Client_Data *)watcher->data;
-	bool rc = custom_data->writeout();
-	if (rc == false) {
-		delete custom_data;
-		free(watcher);
-	}
-}
-*/
 
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
@@ -427,20 +430,18 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	pthread_mutex_lock(&pos_mutex);
 	std::string s1 = gtid_executed_to_string(curpos);
 	pthread_mutex_unlock(&pos_mutex);
-	s1 = "ST=" + s1 + "\n";
-	custom_data->add_string(s1.c_str(), s1.length());
-	bool ret = custom_data->writeout();
-	if (ret) {
+	custom_data->add_string("ST=" + s1 + "\n");
+	if (custom_data->writeout()) {
 		//proxy_info("Adding client with FD %d\n", client->fd);
 		Clients.push_back(client);
 	} else {
-		proxy_info("Error accepting client with FD %d\n", client->fd);	
+		proxy_error("Error accepting client with FD %d\n", client->fd);
 		delete custom_data;
 		free(client);
 	}
 }
 
-void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
+void write_clients() {
 	pthread_mutex_lock(&pos_mutex);
 	std::vector<struct ev_io *> to_remove;
 	for (std::vector<struct ev_io *>::iterator it=Clients.begin(); it!=Clients.end(); ++it) {
@@ -449,23 +450,18 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 		for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
 			if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, server_uuids.at(i), strlen(server_uuids.at(i)))) {
 				strcpy(custom_data->uuid_server,server_uuids.at(i));
-				custom_data->add_string((const char *)"I1=",3);
-				std::string s2 = server_uuids.at(i);
-				s2 += ":" + std::to_string(trx_ids.at(i)) + "\n";
-				custom_data->add_string(s2.c_str(),s2.length());
+				custom_data->add_string("I1=" + std::string(server_uuids.at(i)) + ":" + std::to_string(trx_ids.at(i)) + "\n");
 			} else {
-				std::string s2 = "I2=" + std::to_string(trx_ids.at(i)) + "\n";
-				custom_data->add_string(s2.c_str(),s2.length());
+				custom_data->add_string("I2=" + std::to_string(trx_ids.at(i)) + "\n");
 			}
 		}
-		bool rc = false;
-		//if (w->active)
-		rc = custom_data->writeout();
-		if (rc == false) {
+		if (!custom_data->writeout()) {
 			delete custom_data;
 			to_remove.push_back(w);
 		} else {
-			if (custom_data->size > 2048) {
+			// Close connection if the write queue grows too big.
+			if (custom_data->size > max_netbuflen) {
+				proxy_error("network write buffer grew too big (%zu/%zu bytes, max %zu)", custom_data->size, custom_data->max_len, max_netbuflen);
 				ev_io_stop(loop,w);
 				shutdown(w->fd,SHUT_RDWR);
 				close(w->fd);
@@ -487,11 +483,20 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	}
 	server_uuids.clear();
 	trx_ids.clear();
-	
+
 	pthread_mutex_unlock(&pos_mutex);
 	return;
 }
 
+void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
+	write_clients();
+	return;
+}
+
+void timer_cb(struct ev_loop *loop, struct ev_timer *t, int revents) {
+	write_clients();
+	return;
+}
 
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	stopflag = 1;
@@ -541,8 +546,14 @@ class GTID_Server_Dumper {
 		}
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
-		ev_async_init(&async, async_cb);
-		ev_async_start(my_loop, &async);
+		if (update_freq_ms) {
+			proxy_info("Pushing updates every %lums\n", update_freq_ms);
+			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
+			ev_timer_start(my_loop, &timer);
+		} else {
+			ev_async_init(&async, async_cb);
+			ev_async_start(my_loop, &async);
+		}
 		ev_signal signal_watcher1;
 		ev_signal signal_watcher2;
 		ev_signal_init (&signal_watcher1, sigint_cb, SIGINT);
@@ -560,22 +571,25 @@ class GTID_Server_Dumper {
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
-	if (last_trxid==sl->gtid_next.second && strcmp(last_server_uuid,sl->gtid_next.first.c_str())==0) {
+
+	const char *uuid=sl->gtid_next.first.c_str();
+	uint64_t trx_id = sl->gtid_next.second;
+	if (last_trx_id == trx_id && !strcmp(last_server_uuid, uuid)) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
-	} else {
-		//std::cout << sl->gtid_next.first << ":" << sl->gtid_next.second << std::endl;
-		strcpy(last_server_uuid,sl->gtid_next.first.c_str());
-		last_trxid = sl->gtid_next.second;
-		char *str=strdup(sl->gtid_next.first.c_str());
-		server_uuids.push_back(str);
-		trx_ids.push_back(sl->gtid_next.second);
-		curpos.addGtid(sl->gtid_next);
-		pthread_mutex_unlock(&pos_mutex);
+		return;
+	}
+
+	strcpy(last_server_uuid, uuid);
+	last_trx_id = trx_id;
+	server_uuids.push_back(strdup(uuid));
+	trx_ids.push_back(trx_id);
+	curpos.addGtid(sl->gtid_next);
+	pthread_mutex_unlock(&pos_mutex);
+	if (!update_freq_ms) {
 		ev_async_send(loop, &async);
 	}
 }
-
 
 bool isStopping() {
 	return stopflag;
@@ -605,14 +619,26 @@ std::string gtid_executed_to_string(slave::Position &curpos) {
 	return gtid_set;
 }
 
-
-
-
-
 void usage(const char* name) {
-	std::cout << "Usage: " << name << " -h <mysql host> -u <mysql user> -p <mysql password> -P <mysql port> -l <listen port> -L <log file>" << std::endl;
+	std::cout << "Usage: " << name << " [args]\n"
+	"\n"
+	"Required arguments:\n"
+	"\n"
+	"-h: MySQL host address.\n"
+	"-u: MySQL user.\n"
+	"\n"
+	"Optional arguments:\n"
+	"\n"
+	"-B: Maximum network buffer size, in bytes (default " << DEFAULT_MAX_NETBUFLEN_STREAMING << ", " << DEFAULT_MAX_NETBUFLEN_BATCHED << " for -t).\n"
+	"-L: Log file path (default " << DEFAULT_ERRORLOG << ").\n"
+	"-P: MySQL port (default " << DEFAULT_MYSQL_PORT << ").\n"
+	"-p: MySQL password.\n"
+	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
+	"-t: Update freqency, in milliseconds. Default is update on every event (0).\n"
+	"-f: Run in foreground.\n"
+	"-v: Outputs build version.\n"
+	<< std::endl;
 }
-
 
 void * server(void *args) {
 	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_port);
@@ -624,15 +650,14 @@ int main(int argc, char** argv) {
 	std::string user;
 	std::string password;
 	std::string errorstr;
-	unsigned int port = 3306;
-
+	unsigned int port = DEFAULT_MYSQL_PORT;
 
 	bool error = false;
 
-
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfh:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vfB:t:h:u:p:P:l:L:"))) {
 		switch (c) {
+			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
 			case 'h': host = optarg; break;
 			case 'u': user = optarg; break;
@@ -642,7 +667,8 @@ int main(int argc, char** argv) {
 				break;
 			case 'P': port = std::stoi(optarg); break;
 			case 'l': listen_port = std::stoi(optarg); break;
-			case 'L' : errorstr = optarg; break;
+			case 'L': errorstr = optarg; break;
+			case 't': update_freq_ms = std::stoi(optarg); break;
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
@@ -653,9 +679,12 @@ int main(int argc, char** argv) {
 	}
 
 	if (errorstr.empty()) {
-		errorlog = (char *)"/tmp/proxysql_mysqlbinlog.log";
+		errorlog = (char *)DEFAULT_ERRORLOG;
 	} else {
 		errorlog = strdup(errorstr.c_str());
+	}
+	if (!max_netbuflen) {
+		max_netbuflen = size_t(update_freq_ms ? DEFAULT_MAX_NETBUFLEN_STREAMING : DEFAULT_MAX_NETBUFLEN_BATCHED);
 	}
 
 	if (host.empty() || user.empty())
