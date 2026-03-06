@@ -39,6 +39,7 @@ void proxy_log_func(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
 	va_end(ap);
 };
 
@@ -209,7 +210,7 @@ bool daemonize_phase3() {
 	if (rc==-1) {
 		parent_open_error_log();
 		perror("waitpid");
-		//proxy_error("[FATAL]: waitpid: %s\n", perror("waitpid"));
+		//proxy_error("[FATAL]: waitpid: %s", perror("waitpid"));
 		exit(EXIT_FAILURE);
 	}
 	rc=WIFEXITED(status);
@@ -373,7 +374,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	std::vector<struct ev_io *>::iterator it;
 	it = std::find(Clients.begin(), Clients.end(), watcher);
 	if (it != Clients.end()) {
-		//proxy_info("Remove client with FD %d\n", watcher->fd);
+		//proxy_info("Remove client with FD %d", watcher->fd);
 		Clients.erase(it);
 	}
 	if(EV_ERROR & revents) {
@@ -454,10 +455,10 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	pthread_mutex_unlock(&pos_mutex);
 	custom_data->add_string("ST=" + s1 + "\n");
 	if (custom_data->writeout()) {
-		//proxy_info("Adding client with FD %d\n", client->fd);
+		//proxy_info("Adding client with FD %d", client->fd);
 		Clients.push_back(client);
 	} else {
-		proxy_error("Error accepting client with FD %d\n", client->fd);
+		proxy_error("Error accepting client with FD %d", client->fd);
 		delete custom_data;
 		free(client);
 	}
@@ -526,7 +527,7 @@ static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	//std::cout << " Received signal. Stopping at:" << std::endl;
 	std::string s1 = gtid_executed_to_string(curpos);
 	//std::cout << s1 << std::endl;
-	proxy_info("Received signal. Stopping at: %s\n", s1.c_str());
+	proxy_info("Received signal. Stopping at: %s", s1.c_str());
 	ev_break(loop, EVBREAK_ALL);
 }
 
@@ -569,7 +570,7 @@ class GTID_Server_Dumper {
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
 		if (update_freq_ms) {
-			proxy_info("Pushing updates every %lums\n", update_freq_ms);
+			proxy_info("Pushing updates every %lums", update_freq_ms);
 			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
 			ev_timer_start(my_loop, &timer);
 		} else {
@@ -793,7 +794,7 @@ __start_label:
 	masterinfo.conn_options.mysql_pass = password;
 
 	try {
-		proxy_info("proxysql_binlog_reader version %s\n", BINLOG_VERSION);
+		proxy_info("proxysql_binlog_reader version %s", BINLOG_VERSION);
 
 		slave::DefaultExtState sDefExtState;
 		slave::Slave slave(masterinfo, sDefExtState);
@@ -802,7 +803,7 @@ __start_label:
 		slave.setXidCallback(bench_xid_callback);
 
 		//std::cout << "Initializing client..." << std::endl;
-		proxy_info("Initializing client...\n");
+		proxy_info("Initializing client...");
 		slave.init();
 		// enable GTID
 		slave.enableGtid();
@@ -812,13 +813,13 @@ __start_label:
 
 		// Wait until a valid 'GTID' has been executed for requesting binlog
 		while (s1.empty() && !isStopping()) {
-			proxy_info("'Executed_Gtid_Set' found empty, retrying...\n");
+			proxy_info("'Executed_Gtid_Set' found empty, retrying...");
 			usleep(1000 * 1000);
 
 			curpos = slave.getLastBinlogPos();
 			s1 = gtid_executed_to_string(curpos);
 		}
-		proxy_info("Last executed GTID: '%s'\n", s1.c_str());
+		proxy_info("Last executed GTID: '%s'", s1.c_str());
 
 		sDefExtState.setMasterPosition(curpos);
 
@@ -827,7 +828,7 @@ __start_label:
 
 		try {
 
-			proxy_info("Reading binlogs...\n");
+			proxy_info("Reading binlogs...");
 			slave.get_remote_binlog([&] ()
 				{
 					const slave::MasterInfo& sMasterInfo = slave.masterInfo();
@@ -848,7 +849,7 @@ __start_label:
 }
 
 finish:
-	proxy_info("Exiting...\n");
+	proxy_info("Exiting...");
 	daemon_retval_send(255);
 	daemon_signal_done();
 	daemon_pid_file_remove();
