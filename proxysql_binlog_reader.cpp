@@ -23,9 +23,9 @@
 #include <libdaemon/dpid.h>
 #include <libdaemon/dexec.h>
 
-
 #include "Slave.h"
 #include "DefaultExtState.h"
+#include "proxysql_gtid.h"
 
 #define BINLOG_VERSION GITVERSION
 
@@ -57,13 +57,17 @@ void proxy_log_func(const char *fmt, ...) {
 #define proxy_info(fmt, ...)   proxy_log("INFO", fmt, ## __VA_ARGS__);
 #define proxy_error(fmt, ...)  proxy_log("ERROR", fmt, ## __VA_ARGS__);
 
-#define NETBUFLEN                        256
-#define WRITE_CHUNKLEN                   4096
-#define DEFAULT_ERRORLOG                 "/tmp/proxysql_mysqlbinlog.log"
-#define DEFAULT_MYSQL_PORT               3306
-#define DEFAULT_LISTEN_PORT              6020
-#define DEFAULT_MAX_NETBUFLEN_STREAMING  (8 * NETBUFLEN)
-#define DEFAULT_MAX_NETBUFLEN_BATCHED    (8192 * NETBUFLEN)
+#define NETBUFLEN                            256
+#define WRITE_CHUNKLEN                       4096
+#define ERRORLOG_OPEN_FLAGS                  (O_WRONLY | O_APPEND | O_CREAT)
+#define ERRORLOG_STAT_FLAGS                  (S_IWUSR | S_IRGRP | S_IWGRP)
+#define DEFAULT_ERRORLOG                     "/tmp/proxysql_mysqlbinlog.log"
+#define DEFAULT_MYSQL_PORT                   3306
+#define DEFAULT_LISTEN_PORT                  6020
+#define DEFAULT_MAX_NETBUFLEN_STREAMING      (8 * NETBUFLEN)
+#define DEFAULT_MAX_NETBUFLEN_BATCHED        (8192 * NETBUFLEN)
+#define PROXYSQL_UPDATE_BATCHING_MIN_VERSION "3.0.7"
+#define UUID_SIZE_BYTES                      64
 
 struct ev_async async;
 std::vector<struct ev_io *> Clients;
@@ -71,16 +75,14 @@ std::vector<struct ev_io *> Clients;
 pid_t pid;
 time_t laststart;
 pthread_mutex_t pos_mutex;
+
 std::vector<char *> server_uuids;
 std::vector<uint64_t> trx_ids;
-
-std::string gtid_executed_to_string(slave::Position &curpos);
 
 static struct ev_loop *loop;
 
 volatile sig_atomic_t stopflag = 0;
 slave::Slave* sl = NULL;
-
 slave::Position curpos;
 
 int pipefd[2];
@@ -94,6 +96,7 @@ bool foreground = false;
 unsigned int listen_port = DEFAULT_LISTEN_PORT;
 size_t max_netbuflen = 0;
 uint64_t update_freq_ms = 0;
+bool update_batching = true;
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -105,14 +108,14 @@ void flush_error_log() {
 	if (foreground==false) {
 		int outfd=0;
 		int errfd=0;
-		outfd=open(errorlog, O_WRONLY | O_APPEND | O_CREAT , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+		outfd=open(errorlog, ERRORLOG_OPEN_FLAGS, ERRORLOG_STAT_FLAGS);
 		if (outfd>0) {
 			dup2(outfd, STDOUT_FILENO);
 			close(outfd);
 		} else {
 			fprintf(stderr,"Impossible to open file\n");
 		}
-		errfd=open(errorlog, O_WRONLY | O_APPEND | O_CREAT , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+		errfd=open(errorlog, ERRORLOG_OPEN_FLAGS, ERRORLOG_STAT_FLAGS);
 		if (errfd>0) {
 			dup2(errfd, STDERR_FILENO);
 			close(errfd);
@@ -258,7 +261,39 @@ void daemonize_phase1(char *argv0) {
 	}
 }
 
+std::string position_to_string(slave::Position &curpos) {
+    GTID_Set gtid_set;
 
+    if (!update_batching) {
+        // Generatate a message with individual updates per GTID.
+        std::string out;
+
+        for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
+            gtid_set.clear();
+
+            auto uuid = it->first;
+            for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+                gtid_set.add(uuid, itr->first, itr->second);
+            }
+
+            if (!out.empty()) {
+                out += ",";
+            }
+            out += gtid_set.to_string();
+        }
+
+        return out;
+    }
+
+    // GTID string for ranged updates.
+    for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
+        auto uuid = it->first;
+        for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+            gtid_set.add(uuid, itr->first, itr->second);
+        }
+	}
+	return gtid_set.to_string();
+}
 
 class Client_Data {
 	public:
@@ -268,8 +303,9 @@ class Client_Data {
 	size_t size;
 	size_t pos;
 	struct ev_io *w;
-	char uuid_server[64];
+	char uuid_server[UUID_SIZE_BYTES];
 	char *ip = NULL;
+
 	Client_Data(struct ev_io *_w) {
 		w = _w;
 		size = NETBUFLEN;
@@ -406,7 +442,7 @@ void io_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 }
 
 void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-	typedef union { 
+    typedef union {
 		struct sockaddr_in in;
 		struct sockaddr_in6 in6;
 	} custom_sockaddr;
@@ -451,7 +487,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 	ev_io_init(client, io_cb, client_sd, EV_READ);
 	ev_io_start(loop, client);
 	pthread_mutex_lock(&pos_mutex);
-	std::string s1 = gtid_executed_to_string(curpos);
+	std::string s1 = position_to_string(curpos);
 	pthread_mutex_unlock(&pos_mutex);
 	custom_data->add_string("ST=" + s1 + "\n");
 	if (custom_data->writeout()) {
@@ -466,18 +502,45 @@ void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 
 void write_clients() {
 	pthread_mutex_lock(&pos_mutex);
+
 	std::vector<struct ev_io *> to_remove;
+	GTID_Set gtid_set;
+
 	for (std::vector<struct ev_io *>::iterator it=Clients.begin(); it!=Clients.end(); ++it) {
 		struct ev_io *w = *it;
 		Client_Data * custom_data = (Client_Data *)w->data;
-		for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
-			if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, server_uuids.at(i), strlen(server_uuids.at(i)))) {
-				strcpy(custom_data->uuid_server,server_uuids.at(i));
-				custom_data->add_string("I1=" + std::string(server_uuids.at(i)) + ":" + std::to_string(trx_ids.at(i)) + "\n");
-			} else {
-				custom_data->add_string("I2=" + std::to_string(trx_ids.at(i)) + "\n");
+
+		if (!update_batching) {
+		    // Generate a I1/I2 message per update per server.
+		    for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
+				if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, server_uuids.at(i), strlen(server_uuids.at(i)))) {
+				    strncpy(custom_data->uuid_server,server_uuids.at(i), UUID_SIZE_BYTES);
+					custom_data->add_string("I1=" + std::string(server_uuids.at(i)) + ":" + std::to_string(trx_ids.at(i)) + "\n");
+				} else {
+				    custom_data->add_string("I2=" + std::to_string(trx_ids.at(i)) + "\n");
+				}
+			}
+	    } else {
+	        // Group updates into a single I1/I2 message per server.
+			gtid_set.clear();
+			for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
+			    gtid_set.add(server_uuids.at(i), trx_ids.at(i));
+			}
+
+			for (auto mit = gtid_set.map.begin(); mit != gtid_set.map.end(); mit++) {
+			    auto uuid = mit->first;
+				auto gtid_sets = mit->second;
+				for (auto it = gtid_sets.begin(); it != gtid_sets.end(); it++) {
+					if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, uuid.c_str(), uuid.size())) {
+	                    strncpy(custom_data->uuid_server, uuid.c_str(), UUID_SIZE_BYTES);
+					    custom_data->add_string("I1=" + uuid + ":" + it->to_string() + "\n");
+					} else {
+				        custom_data->add_string("I2=" + it->to_string() + "\n");
+					}
+				}
 			}
 		}
+
 		if (!custom_data->writeout()) {
 			delete custom_data;
 			to_remove.push_back(w);
@@ -525,7 +588,7 @@ static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	stopflag = 1;
 	sl->close_connection();
 	//std::cout << " Received signal. Stopping at:" << std::endl;
-	std::string s1 = gtid_executed_to_string(curpos);
+	std::string s1 = position_to_string(curpos);
 	//std::cout << s1 << std::endl;
 	proxy_info("Received signal. Stopping at: %s", s1.c_str());
 	ev_break(loop, EVBREAK_ALL);
@@ -570,7 +633,7 @@ class GTID_Server_Dumper {
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
 		if (update_freq_ms) {
-			proxy_info("Pushing updates every %lums", update_freq_ms);
+			proxy_info("Pushing %s updates every %lums", update_batching ? "batched" : "non-batched", update_freq_ms);
 			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
 			ev_timer_start(my_loop, &timer);
 		} else {
@@ -589,8 +652,6 @@ class GTID_Server_Dumper {
 		close(sd);
 	}
 };
-
-
 
 void bench_xid_callback(unsigned int server_id) {
 	pthread_mutex_lock(&pos_mutex);
@@ -618,30 +679,6 @@ bool isStopping() {
 	return stopflag;
 }
 
-std::string gtid_executed_to_string(slave::Position &curpos) {
-	std::string gtid_set { "" };
-	for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-		std::string s = it->first;
-		s.insert(8,"-");
-		s.insert(13,"-");
-		s.insert(18,"-");
-		s.insert(23,"-");
-		s = s + ":";
-		for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-			std::string s2 = s;
-			s2 = s2 + std::to_string(itr->first);
-			s2 = s2 + "-";
-			s2 = s2 + std::to_string(itr->second);
-			s2 = s2 + ",";
-			gtid_set = gtid_set + s2;
-		}
-	}
-	if (gtid_set.empty() == false) {
-		gtid_set.pop_back();
-	}
-	return gtid_set;
-}
-
 void usage(const char* name) {
 	std::cout << "Usage: " << name << " [args]\n"
 	"\n"
@@ -658,6 +695,7 @@ void usage(const char* name) {
 	"-p: MySQL password.\n"
 	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
 	"-t: Update freqency, in milliseconds. Default is update on every event (0).\n"
+	"-U: Disable update batching. Necessary for ProxySQL server releases older than v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << ".\n"
 	"-f: Run in foreground.\n"
 	"-v: Outputs build version.\n"
 	<< std::endl;
@@ -678,7 +716,7 @@ int main(int argc, char** argv) {
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfB:t:h:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vfUB:t:h:u:p:P:l:L:"))) {
 		switch (c) {
 			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
@@ -692,6 +730,7 @@ int main(int argc, char** argv) {
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L': errorstr = optarg; break;
 			case 't': update_freq_ms = std::stoi(optarg); break;
+			case 'U': update_batching = false; break;
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
@@ -809,7 +848,7 @@ __start_label:
 		slave.enableGtid();
 
 		curpos = slave.getLastBinlogPos();
-		std::string s1 = gtid_executed_to_string(curpos);
+		std::string s1 = position_to_string(curpos);
 
 		// Wait until a valid 'GTID' has been executed for requesting binlog
 		while (s1.empty() && !isStopping()) {
@@ -817,7 +856,7 @@ __start_label:
 			usleep(1000 * 1000);
 
 			curpos = slave.getLastBinlogPos();
-			s1 = gtid_executed_to_string(curpos);
+			s1 = position_to_string(curpos);
 		}
 		proxy_info("Last executed GTID: '%s'", s1.c_str());
 
