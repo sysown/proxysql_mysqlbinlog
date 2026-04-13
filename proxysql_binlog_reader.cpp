@@ -521,7 +521,7 @@ void write_clients() {
 				}
 			}
 	    } else {
-	        // Group updates into a single I1/I2 message per server.
+	        // Group updates into a single I3/I4 message per server.
 			gtid_set.clear();
 			for (std::vector<char *>::size_type i=0; i<server_uuids.size(); i++) {
 			    gtid_set.add(server_uuids.at(i), trx_ids.at(i));
@@ -533,9 +533,9 @@ void write_clients() {
 				for (auto it = gtid_sets.begin(); it != gtid_sets.end(); it++) {
 					if (custom_data->uuid_server[0]==0 || strncmp(custom_data->uuid_server, uuid.c_str(), uuid.size())) {
 	                    strncpy(custom_data->uuid_server, uuid.c_str(), UUID_SIZE_BYTES);
-					    custom_data->add_string("I1=" + uuid + ":" + it->to_string() + "\n");
+					    custom_data->add_string("I3=" + uuid + ":" + it->to_string() + "\n");
 					} else {
-				        custom_data->add_string("I2=" + it->to_string() + "\n");
+				        custom_data->add_string("I4=" + it->to_string() + "\n");
 					}
 				}
 			}
