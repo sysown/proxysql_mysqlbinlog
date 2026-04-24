@@ -42,9 +42,10 @@ DEPS :=		./libslave/libslave.a \
 .PHONY: default
 default: proxysql_binlog_reader
 
+SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp
 
 proxysql_binlog_reader: libev libdaemon libslave
-	@$(CXX) -o proxysql_binlog_reader proxysql_binlog_reader.cpp -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) $(LDIRS) -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
+	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) $(LDIRS) -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
 # -lperconaserverclient if compiled with percona server
 
 libev/.libs/libev.a:
