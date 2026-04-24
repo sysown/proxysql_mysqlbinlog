@@ -70,7 +70,7 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
 + `-t`: optional update throttling, in milliseconds
-+ `-U`: Disable update batching. Necessary for ProxySQL servers older than v3.0.7.
++ `-U`: Disable update batching. Necessary for ProxySQL servers older than v3.0.8.
 + `-B`: Optional maximum network buffer size, in bytes
 
 

@@ -66,7 +66,7 @@ void proxy_log_func(const char *fmt, ...) {
 #define DEFAULT_LISTEN_PORT                  6020
 #define DEFAULT_MAX_NETBUFLEN_STREAMING      (8 * NETBUFLEN)
 #define DEFAULT_MAX_NETBUFLEN_BATCHED        (8192 * NETBUFLEN)
-#define PROXYSQL_UPDATE_BATCHING_MIN_VERSION "3.0.7"
+#define PROXYSQL_UPDATE_BATCHING_MIN_VERSION "3.0.8"
 #define UUID_SIZE_BYTES                      64
 
 struct ev_async async;
