@@ -744,6 +744,12 @@ int main(int argc, char** argv) {
 	} else {
 		errorlog = strdup(errorstr.c_str());
 	}
+
+	// Disable batching, if frequency is 0.
+	if (!update_freq_ms) {
+		update_batching = false;
+	}
+
 	if (!max_netbuflen) {
 		max_netbuflen = size_t(update_freq_ms ? DEFAULT_MAX_NETBUFLEN_STREAMING : DEFAULT_MAX_NETBUFLEN_BATCHED);
 	}
