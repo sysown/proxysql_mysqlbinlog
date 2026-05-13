@@ -694,7 +694,7 @@ void usage(const char* name) {
 	"-p: MySQL password.\n"
 	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
 	"-t: Update freqency, in milliseconds. Default is update on every event (0).\n"
-	"-U: Disable update batching. Necessary for ProxySQL server releases older than v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << ".\n"
+	"-b: Batched updates, 0 or 1 (default 1). Requires ProxySQL v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << " or later; set to 0 for older versions.\n"
 	"-f: Run in foreground.\n"
 	"-v: Outputs build version.\n"
 	<< std::endl;
@@ -715,7 +715,7 @@ int main(int argc, char** argv) {
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfUB:t:h:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt(argc, argv, "vfB:b:t:h:u:p:P:l:L:"))) {
 		switch (c) {
 			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
@@ -729,7 +729,7 @@ int main(int argc, char** argv) {
 			case 'l': listen_port = std::stoi(optarg); break;
 			case 'L': errorstr = optarg; break;
 			case 't': update_freq_ms = std::stoi(optarg); break;
-			case 'U': update_batching = false; break;
+			case 'b': update_batching = std::stoi(optarg) ? true : false; break;
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
