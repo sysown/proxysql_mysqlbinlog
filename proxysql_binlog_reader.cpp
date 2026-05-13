@@ -262,35 +262,34 @@ void daemonize_phase1(char *argv0) {
 }
 
 std::string position_to_string(slave::Position &curpos) {
-    GTID_Set gtid_set;
+	GTID_Set gtid_set;
 
-    if (!update_batching) {
-        // Generatate a message with individual updates per GTID.
-        std::string out;
+	if (!update_batching) {
+		// Generatate a message with individual updates per GTID.
+		std::string out;
 
-        for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-            gtid_set.clear();
+		for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
+			auto uuid = it->first;
+			for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+				gtid_set.clear();
+				gtid_set.add(uuid, itr->first, itr->second);
 
-            auto uuid = it->first;
-            for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-                gtid_set.add(uuid, itr->first, itr->second);
-            }
+				if (!out.empty()) {
+					out += ",";
+				}
+				out += gtid_set.to_string();
+			}
+		}
 
-            if (!out.empty()) {
-                out += ",";
-            }
-            out += gtid_set.to_string();
-        }
+		return out;
+	}
 
-        return out;
-    }
-
-    // GTID string for ranged updates.
-    for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-        auto uuid = it->first;
-        for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-            gtid_set.add(uuid, itr->first, itr->second);
-        }
+	// GTID string for ranged updates.
+	for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
+		auto uuid = it->first;
+		for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+			gtid_set.add(uuid, itr->first, itr->second);
+		}
 	}
 	return gtid_set.to_string();
 }
