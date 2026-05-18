@@ -1,0 +1,58 @@
+name: Release
+run-name: Release ${{ github.event.release.tag_name }}
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: package (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - centos9
+          - centos10
+          - debian12
+          - debian13
+          - ubuntu22
+          - ubuntu24
+    steps:
+      - name: Check out source at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Build ${{ matrix.distro }} package
+        run: make ${{ matrix.distro }}
+
+      - name: List built artifacts
+        run: ls -l binaries/
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.distro }}
+          path: |
+            binaries/*.deb
+            binaries/*.rpm
+          if-no-files-found: error
+
+      - name: Upload package to GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          assets=( binaries/*.deb binaries/*.rpm )
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "no package assets to upload"
+            exit 1
+          fi
+          gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber
