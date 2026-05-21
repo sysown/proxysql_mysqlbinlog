@@ -1,0 +1,27 @@
+# Runtime container for the binlog_reader TAP suite.
+#
+# Carries only what the host-built test binaries and reader binary
+# need to RUN — there is no compiler in this image. The host owns the
+# build via `make build-ubuntu24` (reader) and `make -C test/tap`
+# (test framework), and both artifact trees are bind-mounted into the
+# container at /opt/proxysql_mysqlbinlog.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime deps:
+# - libmysqlclient21: test binaries dynamically link against it.
+# - libboost-system: reader binary's runtime dep.
+# - libssl3, zlib1g, libzstd1: shared by both.
+# - ca-certificates: TLS handshakes if MySQL is configured for SSL.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libmysqlclient21 \
+        libboost-system1.83.0 \
+        libssl3 \
+        zlib1g \
+        libzstd1 \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/proxysql_mysqlbinlog

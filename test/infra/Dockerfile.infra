@@ -1,0 +1,77 @@
+# Test infra for proxysql_binlog_reader integration tests.
+#
+# Builds a single image that hosts MySQL 5.7 / 8.0 / 8.4 / 9.0 / 9.4
+# sandboxes side-by-side, managed by dbdeployer. The entrypoint deploys
+# one standalone instance per version on the planned host ports:
+#
+#     5.7 -> 3357
+#     8.0 -> 3380
+#     8.4 -> 3384
+#     9.0 -> 3390
+#     9.4 -> 3394
+#
+# The runner (test/tap/run.sh) iterates MYSQL_VERSIONS and points each
+# TAP at one of those ports.
+
+FROM ubuntu:22.04
+
+ARG DBDEPLOYER_VERSION=2.2.1
+ARG MYSQL_TARBALL_57_URL=https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-5.7.44-linux-glibc2.12-x86_64.tar.gz
+ARG MYSQL_TARBALL_80_URL=https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.43-linux-glibc2.28-x86_64.tar.xz
+ARG MYSQL_TARBALL_84_URL=https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.8-linux-glibc2.28-x86_64.tar.xz
+ARG MYSQL_TARBALL_90_URL=https://dev.mysql.com/get/Downloads/MySQL-9.0/mysql-9.0.1-linux-glibc2.28-x86_64.tar.xz
+ARG MYSQL_TARBALL_94_URL=https://dev.mysql.com/get/Downloads/MySQL-9.4/mysql-9.4.0-linux-glibc2.28-x86_64.tar.xz
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime deps for every supported MySQL version. binutils is included
+# because the unpack layer strips binaries to keep the image small.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libaio1 libnuma1 libncurses5 libssl3 perl curl ca-certificates \
+        zlib1g binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# dbdeployer (ProxySQL fork — matches what proxysql infra uses).
+RUN curl -fsSL "https://github.com/ProxySQL/dbdeployer/releases/download/v${DBDEPLOYER_VERSION}/dbdeployer-${DBDEPLOYER_VERSION}.linux_amd64.tar.gz" \
+        | tar -xz -C /usr/local/bin/ \
+    && chmod +x /usr/local/bin/dbdeployer \
+    && dbdeployer defaults update reserved-ports '0'
+
+# Download + unpack + strip all five MySQL tarballs in a single layer so
+# the intermediate downloads and debug binaries do not survive into the
+# final image. The result lives at /root/opt/mysql/<version>/.
+RUN mkdir -p /root/opt/mysql /root/downloads \
+    && for url in \
+           "${MYSQL_TARBALL_57_URL}" \
+           "${MYSQL_TARBALL_80_URL}" \
+           "${MYSQL_TARBALL_84_URL}" \
+           "${MYSQL_TARBALL_90_URL}" \
+           "${MYSQL_TARBALL_94_URL}"; do \
+         fname=$(basename "$url"); \
+         echo "==> downloading $fname"; \
+         curl -fsSL -o "/root/downloads/$fname" "$url"; \
+         dbdeployer unpack "/root/downloads/$fname"; \
+         rm -f "/root/downloads/$fname"; \
+       done \
+    && find /root/opt/mysql -name 'mysqld-debug' -delete \
+    && find /root/opt/mysql -name '*.a' -delete \
+    && find /root/opt/mysql -type f \( -path '*/bin/*' -o -name '*.so' -o -name '*.so.*' \) \
+         -exec sh -c 'strip --strip-unneeded "$1" 2>/dev/null || true' _ {} \; \
+    && rm -rf /root/downloads
+
+# binutils served its purpose; drop it.
+RUN apt-get purge -y binutils && apt-get autoremove -y --purge \
+    && rm -rf /var/lib/apt/lists/*
+
+# Default fleet — override with `-e MYSQL_VERSIONS="84"` to spin a subset.
+ENV MYSQL_VERSIONS="57 80 84 90 94"
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 3357 3380 3384 3390 3394
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=120s --retries=60 \
+    CMD test -f /tmp/infra_ready
+
+ENTRYPOINT ["/entrypoint.sh"]

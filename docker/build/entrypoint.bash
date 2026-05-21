@@ -26,6 +26,9 @@ echo "==> Epoch: ${SOURCE_DATE_EPOCH}"
 echo "==> Cleaning"
 make cleanbuild
 
+echo "==> Normalizing mtimes for reproducible builds"
+find . -not -path "./binaries/*" -not -path "./.git/*" | xargs touch -h --date=@${SOURCE_DATE_EPOCH}
+
 echo "==> Building"
 make -j $(ncpu)
 

@@ -1,0 +1,65 @@
+# Test infra and runner.
+#
+# `mysql` hosts five MySQL sandboxes (5.7/8.0/8.4/9.0/9.4) via
+# dbdeployer; the entrypoint spawns one sandbox per token in
+# MYSQL_VERSIONS.
+#
+# `runner` runs the TAP suite against `mysql` via the docker network.
+# It bind-mounts the repo at /opt/proxysql_mysqlbinlog so the host-built
+# reader binary and test binaries are visible.
+#
+# Set MYSQL_VERSIONS (in this file or via shell env) to a subset like
+# "84" to spin up only one sandbox — useful during local iteration.
+
+services:
+
+  mysql:
+    image: proxysql-binlog-reader-infra:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.infra
+    container_name: binlog-reader-infra
+    restart: always
+    environment:
+      MYSQL_VERSIONS: "${MYSQL_VERSIONS:-57 80 84 90 94}"
+      ROOT_PASSWORD: "${ROOT_PASSWORD:-root}"
+    ports:
+      - "3357:3357"
+      - "3380:3380"
+      - "3384:3384"
+      - "3390:3390"
+      - "3394:3394"
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+
+  runner:
+    image: proxysql-binlog-reader-runner:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    container_name: binlog-reader-runner
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ../../:/opt/proxysql_mysqlbinlog
+    working_dir: /opt/proxysql_mysqlbinlog
+    environment:
+      # Connect to mysql via the compose network, not via host ports.
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+      MYSQL_VERSIONS: "${MYSQL_VERSIONS:-57 80 84 90 94}"
+      # Use the host-built reader binary visible through the bind mount.
+      BINLOG_READER_BIN: /opt/proxysql_mysqlbinlog/proxysql_binlog_reader
+      # Per-run log directory, populated by start-test.sh.
+      BINLOG_READER_LOG_DIR: /opt/proxysql_mysqlbinlog/test/logs/${RUN_ID:-}
+      RUN_ID: "${RUN_ID:-}"
+      # Disable run.sh's wait-for-infra docker-inspect (handled by depends_on).
+      INFRA_CONTAINER: ""
+    command:
+      - bash
+      - -c
+      - 'test/tap/run.sh 2>&1 | tee test/logs/${RUN_ID}/runner.log'
