@@ -11,7 +11,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Runtime deps:
-# - libmysqlclient21: test binaries dynamically link against it.
+# - libmysqlclient21: available in Ubuntu 24.04 repos.
+# - libmysqlclient20 (5.7): the test binaries are compiled inside the
+#   build-ubuntu24 container which links against the 5.7 client lib.
 # - libboost-system: reader binary's runtime dep.
 # - libssl3, zlib1g, libzstd1: shared by both.
 # - ca-certificates: TLS handshakes if MySQL is configured for SSL.
@@ -22,6 +24,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g \
         libzstd1 \
         ca-certificates \
+        wget \
+    && wget -q https://repo.mysql.com/apt/ubuntu/pool/mysql-5.7/m/mysql-community/libmysqlclient20_5.7.42-1ubuntu18.04_amd64.deb \
+    && dpkg -i libmysqlclient20_5.7.42-1ubuntu18.04_amd64.deb \
+    && rm -f libmysqlclient20_5.7.42-1ubuntu18.04_amd64.deb \
+    && apt-get purge -y wget && apt-get autoremove -y --purge \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/proxysql_mysqlbinlog

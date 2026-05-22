@@ -67,7 +67,10 @@ jobs:
       # ------------------------------------------------------------------
 
       - name: Generate run ID
-        run: echo "RUN_ID=ci-$(date -u +%Y%m%dT%H%M%SZ)" >> "$GITHUB_ENV"
+        run: |
+          RUN_ID="ci-$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
+          mkdir -p "test/logs/${RUN_ID}"
 
       - name: Test MySQL 5.7
         continue-on-error: true
@@ -80,8 +83,7 @@ jobs:
           cleanup() { docker compose down -v 2>/dev/null; }
           trap cleanup EXIT
           docker compose up -d mysql
-          docker compose run --rm runner \
-            bash -c "test/tap/run.sh 2>&1 | tee -a test/logs/${RUN_ID}/runner.log"
+          docker compose run --rm runner
 
       - name: Test MySQL 8.0
         continue-on-error: true
@@ -94,8 +96,7 @@ jobs:
           cleanup() { docker compose down -v 2>/dev/null; }
           trap cleanup EXIT
           docker compose up -d mysql
-          docker compose run --rm runner \
-            bash -c "test/tap/run.sh 2>&1 | tee -a test/logs/${RUN_ID}/runner.log"
+          docker compose run --rm runner
 
       - name: Test MySQL 8.4
         continue-on-error: true
@@ -108,8 +109,7 @@ jobs:
           cleanup() { docker compose down -v 2>/dev/null; }
           trap cleanup EXIT
           docker compose up -d mysql
-          docker compose run --rm runner \
-            bash -c "test/tap/run.sh 2>&1 | tee -a test/logs/${RUN_ID}/runner.log"
+          docker compose run --rm runner
 
       - name: Test MySQL 9.0
         continue-on-error: true
@@ -122,8 +122,7 @@ jobs:
           cleanup() { docker compose down -v 2>/dev/null; }
           trap cleanup EXIT
           docker compose up -d mysql
-          docker compose run --rm runner \
-            bash -c "test/tap/run.sh 2>&1 | tee -a test/logs/${RUN_ID}/runner.log"
+          docker compose run --rm runner
 
       - name: Test MySQL 9.4
         continue-on-error: true
@@ -136,8 +135,7 @@ jobs:
           cleanup() { docker compose down -v 2>/dev/null; }
           trap cleanup EXIT
           docker compose up -d mysql
-          docker compose run --rm runner \
-            bash -c "test/tap/run.sh 2>&1 | tee -a test/logs/${RUN_ID}/runner.log"
+          docker compose run --rm runner
 
       # ------------------------------------------------------------------
       # Artifacts
