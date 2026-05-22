@@ -124,11 +124,15 @@ bool parse_iv_line(BinlogReaderMsg& msg) {
 }
 
 /**
- * Parse the body of an ST line as `<uuid>:<interval>[:<interval>...]`.
+ * Parse the body of an ST line.
  *
- * Populates msg.uuid and pushes one entry onto msg.intervals per
- * interval token. Rejects multi-uuid sets (any comma in the body) —
- * see integration-test-concerns.md item #1.
+ * The reader serializes a sparse same-uuid set with commas (streaming
+ * mode) — e.g. "uuid:1-50,uuid:60-62,uuid:65-66" — and a non-sparse or
+ * batched set with colons — e.g. "uuid:1-50:60-62". This handles both
+ * by splitting on ',' first and then ':' within each block, requiring
+ * all blocks to share the same uuid. True multi-uuid sets (different
+ * uuids across blocks) are rejected — see integration-test-concerns.md
+ * item #1.
  *
  * @param msg In/out message; msg.raw is read, msg.uuid + msg.intervals
  *            are written.
@@ -137,30 +141,50 @@ bool parse_iv_line(BinlogReaderMsg& msg) {
  */
 bool parse_st_line(BinlogReaderMsg& msg) {
 	const std::string body = msg.raw.substr(3);
-	if (body.find(',') != std::string::npos)
+	if (body.empty())
 		return false;
 
-	const auto colon = body.find(':');
-	if (colon == std::string::npos || colon == 0 || colon + 1 == body.size())
-		return false;
-	msg.uuid = body.substr(0, colon);
+	size_t block_start = 0;
+	while (block_start < body.size()) {
+		const size_t comma = body.find(',', block_start);
+		const std::string block = (comma == std::string::npos)
+		                              ? body.substr(block_start)
+		                              : body.substr(block_start, comma - block_start);
+		if (block.empty())
+			return false;
 
-	std::string rest = body.substr(colon + 1);
-	size_t pos = 0;
-	while (pos < rest.size()) {
-		const size_t next = rest.find(':', pos);
-		const std::string piece = (next == std::string::npos)
-		                              ? rest.substr(pos)
-		                              : rest.substr(pos, next - pos);
-		if (piece.empty())
+		const size_t first_colon = block.find(':');
+		if (first_colon == std::string::npos || first_colon == 0 ||
+		    first_colon + 1 == block.size())
 			return false;
-		TrxId_Interval iv(piece);
-		if (!valid_interval_for(msg.kind, iv))
+		const std::string block_uuid = block.substr(0, first_colon);
+		if (msg.uuid.empty()) {
+			msg.uuid = block_uuid;
+		} else if (msg.uuid != block_uuid) {
 			return false;
-		msg.intervals.push_back(iv);
-		if (next == std::string::npos)
+		}
+
+		std::string rest = block.substr(first_colon + 1);
+		size_t pos = 0;
+		while (pos < rest.size()) {
+			const size_t next = rest.find(':', pos);
+			const std::string piece = (next == std::string::npos)
+			                              ? rest.substr(pos)
+			                              : rest.substr(pos, next - pos);
+			if (piece.empty())
+				return false;
+			TrxId_Interval iv(piece);
+			if (!valid_interval_for(msg.kind, iv))
+				return false;
+			msg.intervals.push_back(iv);
+			if (next == std::string::npos)
+				break;
+			pos = next + 1;
+		}
+
+		if (comma == std::string::npos)
 			break;
-		pos = next + 1;
+		block_start = comma + 1;
 	}
 	return !msg.intervals.empty();
 }

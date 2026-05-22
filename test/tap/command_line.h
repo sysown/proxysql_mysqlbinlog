@@ -20,6 +20,12 @@ class CommandLine {
 	std::string reader_host;
 	int reader_port;
 	std::string reader_log_file;
+
+	// Reader runtime knobs. Default to -1 (use the reader's own default);
+	// tests that need a specific value (e.g. batching-t) set them on
+	// their local CommandLine before calling setup_reader().
+	int batching = -1;
+	int freq_ms = -1;
 };
 
 #endif

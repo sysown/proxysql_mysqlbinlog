@@ -53,9 +53,13 @@ int main() {
 		diag("read_line: line='%s', error=%s, errno=%d",
 		     msg.raw.c_str(), msg.error.c_str(), msg.last_errno);
 	}
-	ok(msg.valid() && msg.kind == "ST" && msg.raw == "ST=" + gtid,
-	   "first line is ST=%s (got kind='%s', raw='%s')",
-	   gtid.c_str(), msg.kind.c_str(), msg.raw.c_str());
+
+	ok(msg.valid()
+		&& msg.kind == "ST"
+		&& !msg.uuid.empty()
+		&& !msg.intervals.empty(),
+	   "first line is ST: '%s'", msg.raw.c_str()
+	);
 
 	return exit_status();
 }

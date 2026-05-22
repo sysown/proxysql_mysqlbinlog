@@ -14,9 +14,9 @@ libslave-20171226
 # Built reader binary
 proxysql_binlog_reader
 
-# Legacy smoke-test binaries built by test/old/Makefile
-test/old/test1
-test/old/test2
-test/old/test3
-test/old/test4
-test/old/test5
+# Legacy libslave example binaries built by test/old/Makefile
+test/old/test_libslave-1
+test/old/test_libslave-2
+test/old/test_libslave-3
+test/old/test_libslave-4
+test/old/test_libslave-5

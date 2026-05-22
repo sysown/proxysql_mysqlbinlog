@@ -29,7 +29,7 @@ test/
 │       └── mysql-<V>/
 │           ├── reader.log
 │           └── <test>.log
-└── old/                    # legacy smoke tests (pre-TAP framework)
+└── old/                    # legacy libslave examples/tests (pre-TAP framework)
 ```
 
 ## Prerequisites
