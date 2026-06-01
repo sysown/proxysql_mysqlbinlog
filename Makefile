@@ -9,7 +9,7 @@
 ### export GIT_VERSION=2.x.y-dev
 ### ```
 
-GIT_VERSION ?= $(shell git describe --long --abbrev=7 2>/dev/null)
+GIT_VERSION ?= $(shell git describe --tags --long --abbrev=7 2>/dev/null)
 ifeq ($(GIT_VERSION),)
     $(error GIT_VERSION is not set)
 endif
@@ -127,8 +127,6 @@ build-%:
 
 .NOTPARALLEL: binaries/proxysql_binlog_reader%
 binaries/proxysql_binlog_reader%:
-	${MAKE} cleanbuild
-	find . -not -path "./binaries/*" -not -path "./.git/*" | xargs touch -h --date=@${SOURCE_DATE_EPOCH}
 	@docker compose -p "mysqlbinlog-${GIT_VERSION/./}" down -v --remove-orphans
 	@docker compose -p "mysqlbinlog-${GIT_VERSION/./}" up mysqlbinlog
 	@docker compose -p "mysqlbinlog-${GIT_VERSION/./}" down -v --remove-orphans
@@ -142,7 +140,7 @@ cleanbuild:
 	rm -f proxysql-mysqlbinlog* || true
 	rm -rf libev-*/
 	rm -rf libslave-*/
-	rm -rf libslave-*/
+	rm -rf libdaemon-*/
 	find . -name '*.a' -delete
 	find . -name '*.o' -delete
 

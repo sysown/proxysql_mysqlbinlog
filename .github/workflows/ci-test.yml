@@ -1,0 +1,149 @@
+name: CI - Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------------
+      # Builds
+      # ------------------------------------------------------------------
+
+      - name: Build reader binary (make build-ubuntu24)
+        run: make build-ubuntu24
+
+      - name: Build test framework (make -C test/tap)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
+            -w /opt/proxysql_mysqlbinlog/test/tap \
+            proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
+            make
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build infra Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: test/infra
+          file: test/infra/Dockerfile.infra
+          tags: proxysql-binlog-reader-infra:latest
+          load: true
+          cache-from: type=gha,scope=test-infra
+          cache-to: type=gha,mode=max,scope=test-infra
+
+      - name: Build runner Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: test/infra
+          file: test/infra/Dockerfile.runner
+          tags: proxysql-binlog-reader-runner:latest
+          load: true
+          cache-from: type=gha,scope=test-runner
+          cache-to: type=gha,mode=max,scope=test-runner
+
+      # ------------------------------------------------------------------
+      # Tests — one step per MySQL version so failures are visible in the
+      # workflow run UI.  continue-on-error keeps later versions running
+      # when an earlier one fails.
+      #
+      # All steps share a single RUN_ID, producing one log tree:
+      #   test/logs/ci-<ts>/
+      #     runner.log          (appended per version via tee -a)
+      #     mysql-<V>/          (one subdir per version, naturally separated by run.sh)
+      # ------------------------------------------------------------------
+
+      - name: Generate run ID
+        run: |
+          RUN_ID="ci-$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
+          mkdir -p "test/logs/${RUN_ID}"
+
+      - name: Test MySQL 5.7
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MYSQL_VERSIONS: '57'
+        run: |
+          set -e
+          cd test/infra
+          cleanup() { docker compose down -v 2>/dev/null; }
+          trap cleanup EXIT
+          docker compose up -d mysql
+          docker compose run --rm runner
+
+      - name: Test MySQL 8.0
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MYSQL_VERSIONS: '80'
+        run: |
+          set -e
+          cd test/infra
+          cleanup() { docker compose down -v 2>/dev/null; }
+          trap cleanup EXIT
+          docker compose up -d mysql
+          docker compose run --rm runner
+
+      - name: Test MySQL 8.4
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MYSQL_VERSIONS: '84'
+        run: |
+          set -e
+          cd test/infra
+          cleanup() { docker compose down -v 2>/dev/null; }
+          trap cleanup EXIT
+          docker compose up -d mysql
+          docker compose run --rm runner
+
+      - name: Test MySQL 9.0
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MYSQL_VERSIONS: '90'
+        run: |
+          set -e
+          cd test/infra
+          cleanup() { docker compose down -v 2>/dev/null; }
+          trap cleanup EXIT
+          docker compose up -d mysql
+          docker compose run --rm runner
+
+      - name: Test MySQL 9.4
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          MYSQL_VERSIONS: '94'
+        run: |
+          set -e
+          cd test/infra
+          cleanup() { docker compose down -v 2>/dev/null; }
+          trap cleanup EXIT
+          docker compose up -d mysql
+          docker compose run --rm runner
+
+      # ------------------------------------------------------------------
+      # Artifacts
+      # ------------------------------------------------------------------
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: test/logs/

@@ -1,11 +1,22 @@
-test/test1
-test/test2
-test/test3
-test/test4
-test/test5
+# TAP integration test build artifacts
+test/tap/*.o
+test/tap/libtap.a
+test/tap/tests/*-t
 
+# Test logs
+test/logs/
+
+# Unpacked third-party sources
 libev-4.24
 libdaemon-0.14
 libslave-20171226
 
-proxysql_binlog_reader*
+# Built reader binary
+proxysql_binlog_reader
+
+# Legacy libslave example binaries built by test/old/Makefile
+test/old/test_libslave-1
+test/old/test_libslave-2
+test/old/test_libslave-3
+test/old/test_libslave-4
+test/old/test_libslave-5

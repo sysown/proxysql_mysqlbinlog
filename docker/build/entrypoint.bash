@@ -26,6 +26,9 @@ echo "==> Epoch: ${SOURCE_DATE_EPOCH}"
 echo "==> Cleaning"
 make cleanbuild
 
+echo "==> Normalizing mtimes for reproducible builds"
+find . -not -path "./binaries/*" -not -path "./.git/*" | xargs touch -h --date=@${SOURCE_DATE_EPOCH}
+
 echo "==> Building"
 make -j $(ncpu)
 
@@ -54,8 +57,8 @@ fpm \
 
 
 if [[ "${PKG_KIND}" = "deb" ]]; then
-	mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${GIT_VERS#v}-${PKG_DIST}_${ARCH}.deb
+	mv -f ./proxysql-mysqlbinlog_${PKG_VERS}_${ARCH}.deb ./binaries/proxysql-mysqlbinlog_${PKG_VERS}-${PKG_DIST}_${ARCH}.deb
 else
-	mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${GIT_VERS#v}-1-${PKG_DIST}.${ARCH}.rpm
+	mv -f ./proxysql-mysqlbinlog-${PKG_VERS}-1.${ARCH}.rpm ./binaries/proxysql-mysqlbinlog-${PKG_VERS}-1-${PKG_DIST}.${ARCH}.rpm
 fi
 ls -l binaries/
