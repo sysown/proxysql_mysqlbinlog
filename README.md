@@ -37,20 +37,41 @@ executable and package can be found in `./binaries`
 
 ### Containers
 
-Ready to use v2.2 docker containers:
+Ready to use v2.3 docker images, published to the GitHub Container Registry (GHCR):
 
-- 2.2-centos10 == centos10 == centos
-- 2.2-centos9 == centos9
-- 2.2-debian13 == debian13 == debian == latest == 2.2
-- 2.2-debian12 == debian12
-- 2.2-ubuntu24 == ubuntu24 = ubuntu
-- 2.2-ubuntu22 == ubuntu22
+- 2.3-centos10 == centos10 == centos
+- 2.3-centos9 == centos9
+- 2.3-debian13 == debian13 == debian == latest == 2.3
+- 2.3-debian12 == debian12
+- 2.3-ubuntu24 == ubuntu24 == ubuntu
+- 2.3-ubuntu22 == ubuntu22
 
 Semantic tag versioning is used, ommited version implies latest.
 
-https://hub.docker.com/r/proxysql/proxysql-mysqlbinlog
+https://github.com/sysown/proxysql_mysqlbinlog/pkgs/container/proxysql-mysqlbinlog
 
-use `docker pull proxysql/proxysql-mysqlbinlog:latest` to pull the latest docker image
+use `docker pull ghcr.io/sysown/proxysql-mysqlbinlog:latest` to pull the latest docker image
+
+#### Container configuration
+
+The image entrypoint runs `proxysql_binlog_reader` in the foreground, configured via environment variables:
+
+| Variable | Maps to | Default |
+| --- | --- | --- |
+| `MYSQL_HOST` | `-h` | `127.0.0.1` |
+| `MYSQL_PORT` | `-P` | `3306` |
+| `MYSQL_USER` | `-u` | `root` |
+| `MYSQL_PASSWORD` | `-p` | `root` |
+| `LISTEN_PORT` | `-l` | `6020` |
+| `UPDATE_FREQ_MS` | `-t` | `0` |
+| `BATCHING` | `-b` | `1` |
+
+e.g.:
+```
+docker run -d --name binlog-reader -p 6020:6020 \
+  -e MYSQL_HOST=mysql1 -e MYSQL_USER=root -e MYSQL_PASSWORD=secret \
+  ghcr.io/sysown/proxysql-mysqlbinlog:latest
+```
 
 ### HowTo
 
@@ -69,9 +90,10 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-l`: listening port
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
-+ `-t`: optional update throttling, in milliseconds
-+ `-U`: Disable update batching. Necessary for ProxySQL servers older than v3.0.8.
-+ `-B`: Optional maximum network buffer size, in bytes
++ `-t`: optional update throttling, in milliseconds (default 0 - update on every event)
++ `-b`: update batching, 0 or 1 (default 1); set to 0 for ProxySQL servers older than v3.0.8
++ `-B`: optional maximum network buffer size, in bytes
++ `-v`: output build version
 
 
 #### Configuration
