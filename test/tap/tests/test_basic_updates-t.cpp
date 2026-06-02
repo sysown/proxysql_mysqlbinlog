@@ -33,7 +33,8 @@ int main() {
 		BAIL_OUT("cannot connect to MySQL: %s", db.last_error().c_str());
 	}
 
-	db.reset_gtid_set();
+	if (!cli.reader_bin.empty())  // reset gtid only in spawn mode
+		db.reset_gtid_set();
 
 	db.exec("CREATE DATABASE IF NOT EXISTS binlog_reader_test");
 	db.exec("CREATE TABLE IF NOT EXISTS binlog_reader_test.updates_t "
