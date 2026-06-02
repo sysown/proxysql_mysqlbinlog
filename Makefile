@@ -10,6 +10,10 @@
 ### ```
 
 GIT_VERSION ?= $(shell git describe --tags --long --abbrev=7 2>/dev/null)
+# Fall back to the short commit SHA when no tag is reachable.
+ifeq ($(GIT_VERSION),)
+    GIT_VERSION := $(shell git rev-parse --short=7 HEAD 2>/dev/null)
+endif
 ifeq ($(GIT_VERSION),)
     $(error GIT_VERSION is not set)
 endif

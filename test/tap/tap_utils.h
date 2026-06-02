@@ -1,6 +1,8 @@
 #ifndef BINLOG_READER_TEST_TAP_UTILS_H
 #define BINLOG_READER_TEST_TAP_UTILS_H
 
+#include <unistd.h>
+
 #include <string>
 
 #include "tap.h"
@@ -52,6 +54,9 @@ inline std::string setup_reader(const CommandLine &cli, BinlogReaderProcess &rea
 		diag("connect mode: skipping spawn (reader expected at %s:%d)",
 		   cli.reader_host.c_str(), cli.reader_port);
 		reader_host = cli.reader_host;
+		// Give the external reader time to catch up the DB setup before
+		// the client connects.
+		sleep(3);
 	}
 
 	return reader_host;

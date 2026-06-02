@@ -1,0 +1,19 @@
+name: Load image artifacts
+description: Download all per-distro image tarballs and docker load them.
+runs:
+  using: composite
+  steps:
+    - name: Download all image artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: image-*
+        path: images/
+        merge-multiple: true
+
+    - name: Load images
+      shell: bash
+      run: |
+        for tar in images/*.tar; do
+          echo "loading $tar"; docker load -i "$tar"
+        done
+        docker images | grep proxysql-mysqlbinlog || true
