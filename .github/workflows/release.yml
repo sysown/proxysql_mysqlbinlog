@@ -9,20 +9,20 @@ on:
 permissions:
   contents: write
 
+env:
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/proxysql-mysqlbinlog
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build distro packages (.deb/.rpm) and attach them to the release.
+  # ---------------------------------------------------------------------------
   package:
     name: package (${{ matrix.distro }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        distro:
-          - centos9
-          - centos10
-          - debian12
-          - debian13
-          - ubuntu22
-          - ubuntu24
+        distro: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
     steps:
       - name: Check out source at release tag
         uses: actions/checkout@v4
@@ -56,3 +56,143 @@ jobs:
             exit 1
           fi
           gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber
+
+  # ---------------------------------------------------------------------------
+  # 2. Build container images locally and SAVE them as artifacts.
+  #    Nothing is pushed here; images reach GHCR only after they pass the tests.
+  # ---------------------------------------------------------------------------
+  container-build:
+    name: container-build (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+    steps:
+      - name: Check out source at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: package-${{ matrix.distro }}
+          path: binaries/
+
+      - name: Build image (load locally, no push)
+        run: make -C docker/images mysqlbinlog-${{ matrix.distro }} IMAGE_PREFIX="${IMAGE_PREFIX}"
+
+      - name: Save image to tarball
+        run: |
+          mkdir -p images
+          docker save "${IMAGE_PREFIX}" -o "images/image-${{ matrix.distro }}.tar"
+          ls -lh images/
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.distro }}
+          path: images/image-${{ matrix.distro }}.tar
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 3. Test every built image with the TAP suite.
+  # ---------------------------------------------------------------------------
+  test-images:
+    name: test-images
+    runs-on: ubuntu-latest
+    needs: container-build
+    env:
+      MYSQL_VERSION: "84"
+      RUNNER_IMG: proxysql/proxysql-mysqlbinlog:build-ubuntu24
+    steps:
+      - name: Check out source at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Load all built images
+        uses: ./.github/actions/load-images
+
+      - name: Build TAP test binaries
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
+            -w /opt/proxysql_mysqlbinlog/test/tap \
+            "$RUNNER_IMG" make
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build infra image
+        uses: docker/build-push-action@v6
+        with:
+          context: test/infra
+          file: test/infra/Dockerfile.infra
+          tags: proxysql-binlog-reader-infra:latest
+          load: true
+          cache-from: type=gha,scope=test-infra
+          cache-to: type=gha,mode=max,scope=test-infra
+
+      - name: Test centos9
+        if: ${{ !cancelled() }}
+        run: DISTROS=centos9 bash test/infra/docker-image-test.sh
+
+      - name: Test centos10
+        if: ${{ !cancelled() }}
+        run: DISTROS=centos10 bash test/infra/docker-image-test.sh
+
+      - name: Test debian12
+        if: ${{ !cancelled() }}
+        run: DISTROS=debian12 bash test/infra/docker-image-test.sh
+
+      - name: Test debian13
+        if: ${{ !cancelled() }}
+        run: DISTROS=debian13 bash test/infra/docker-image-test.sh
+
+      - name: Test ubuntu22
+        if: ${{ !cancelled() }}
+        run: DISTROS=ubuntu22 bash test/infra/docker-image-test.sh
+
+      - name: Test ubuntu24
+        if: ${{ !cancelled() }}
+        run: DISTROS=ubuntu24 bash test/infra/docker-image-test.sh
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-test-logs
+          path: test/logs/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # 4. Publish: push the verified images to GHCR.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs: test-images
+    permissions:
+      packages: write
+    steps:
+      - name: Check out source at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Load all built images
+        uses: ./.github/actions/load-images
+
+      - name: Log into GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push all tags
+        run: docker push --all-tags "${IMAGE_PREFIX}"
