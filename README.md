@@ -31,9 +31,22 @@ make ubuntu24
 
 executable and package can be found in `./binaries`
 ```
--rw-r--r-- 1 root root 1679864 Nov  24 15:56 proxysql-mysqlbinlog_2.2-13-g12758a2-ubuntu24_amd64.deb
--rwxr-xr-x 1 root root 5717720 Nov  24 15:54 proxysql_binlog_reader-2.2-13-g12758a2-ubuntu24
+-rw-r--r-- 1 root root 1679864 Nov  24 15:56 proxysql-mysqlbinlog_2.3-ubuntu24_amd64.deb
+-rwxr-xr-x 1 root root 5717720 Nov  24 15:54 proxysql_binlog_reader-2.3-ubuntu24
 ```
+
+### Packages
+
+Prebuilt v2.3 packages for each supported distro are attached to every release:
+
+- proxysql-mysqlbinlog-2.3-1-centos10.x86_64.rpm
+- proxysql-mysqlbinlog-2.3-1-centos9.x86_64.rpm
+- proxysql-mysqlbinlog_2.3-debian13_amd64.deb
+- proxysql-mysqlbinlog_2.3-debian12_amd64.deb
+- proxysql-mysqlbinlog_2.3-ubuntu24_amd64.deb
+- proxysql-mysqlbinlog_2.3-ubuntu22_amd64.deb
+
+https://github.com/sysown/proxysql_mysqlbinlog/releases/latest
 
 ### Containers
 
