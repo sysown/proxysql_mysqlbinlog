@@ -15,10 +15,12 @@ default: $(TEST_BINS)
 
 test_replication_server_id-t: test_replication_server_id-t.cpp \
 		../../../mariadb_replication_client.cpp ../../../mariadb_replication.cpp \
+		../../../tls_options.h ../../../tls_options.cpp \
 		../../../proxysql_gtid.cpp ../tap.cpp $(MARIADB_CONNECTOR_ARCHIVE)
 	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I.. -I../../.. \
 		test_replication_server_id-t.cpp ../../../mariadb_replication_client.cpp \
-		../../../mariadb_replication.cpp ../../../proxysql_gtid.cpp ../tap.cpp \
+		../../../mariadb_replication.cpp ../../../tls_options.cpp \
+		../../../proxysql_gtid.cpp ../tap.cpp \
 		$(MARIADB_LIBS) -lpthread -o $@
 
 test_tls_options-t: test_tls_options-t.cpp ../../../tls_options.h \
