@@ -34,12 +34,14 @@ test/
 
 ## Prerequisites
 
-The runner container bind-mounts two prebuilt artifacts. Build them natively
-on the host or in the Docker builder before running tests.
+The runner container bind-mounts two prebuilt artifacts. Build the TAP suite
+on the host with a Docker-built reader, or build both artifacts in the Docker
+builder before running tests.
 
-### Native host build
+### Host TAP build with Docker-built reader
 
-Needs `g++`, `make`, `cmake`, and OpenSSL development headers on the host.
+Needs Docker plus `g++`, `make`, `cmake`, and OpenSSL development headers on
+the host.
 
 ```sh
 make build-ubuntu24          # builds proxysql_binlog_reader at repo root
