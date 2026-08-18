@@ -89,6 +89,27 @@ def shell_commands(command)
 end
 
 
+def disables_errexit?(command)
+  options = command.split
+  return false unless options.shift == "set"
+
+  until options.empty?
+    option = options.shift
+    return false if option == "--" || (!option.start_with?("+") && !option.start_with?("-"))
+
+    if option == "+o"
+      return true if options.first == "errexit"
+
+      options.shift
+    elsif option.start_with?("+") && option.delete_prefix("+").include?("e")
+      return true
+    end
+  end
+
+  false
+end
+
+
 def runner_build_command?(command)
   shell_commands(command).include?("docker build -t \"$RUNNER_IMG\" -f #{RUNNER_DOCKERFILE} .")
 end
@@ -223,6 +244,8 @@ def assert_mysql_test_step(step, name, version)
   unless set_e_index < cleanup_index && cleanup_index < trap_index && trap_index < mysql_index && mysql_index < runner_index
     fail("#{name} must set up failure handling before starting and running MySQL")
   end
+  fail("#{name} must keep errexit enabled until the TAP runner exits") if commands[set_e_index..runner_index].any? { |command| disables_errexit?(command) }
+  fail("#{name} must leave the TAP runner as its final substantive command") unless runner_index == commands.length - 1
 end
 
 
