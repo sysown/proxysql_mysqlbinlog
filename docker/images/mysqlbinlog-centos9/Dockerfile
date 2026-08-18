@@ -12,9 +12,6 @@ LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 RUN yum -y update
 
-# Runtime library and authentication plugins for Connector/C.
-RUN yum -y install mariadb-connector-c
-
 # copy package from context
 COPY proxysql-mysqlbinlog-*.rpm ./
 RUN bash -c "rpm -i proxysql-mysqlbinlog-*$(rpm --eval '%{_arch}').rpm"

@@ -2,10 +2,6 @@ FROM debian:12
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
-# Runtime library and authentication plugins for Connector/C.
-RUN apt-get -y update && \
-	apt-get -y install --no-install-recommends libmariadb3
-
 # copy package from context
 COPY proxysql-mysqlbinlog_*.deb ./
 RUN bash -c "yes | dpkg -i proxysql-mysqlbinlog_*$(dpkg --print-architecture).deb"
