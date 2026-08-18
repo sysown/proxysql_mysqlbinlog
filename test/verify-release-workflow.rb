@@ -214,6 +214,9 @@ def assert_mysql_test_step(step, name, version)
   fail("#{name} must set MYSQL_VERSIONS to only #{version}") unless mysql_versions == version
 
   commands = shell_commands(step.fetch("run", ""))
+  fail("#{name} must exit when a test command fails") unless commands.include?("set -e")
+  fail("#{name} must define a Docker Compose cleanup function") unless commands.include?("cleanup() { docker compose down -v 2>/dev/null; }")
+  fail("#{name} must run Docker Compose cleanup on exit") unless commands.include?("trap cleanup EXIT")
   fail("#{name} must start its MySQL service") unless commands.include?("docker compose up -d mysql")
   fail("#{name} must run the TAP runner") unless commands.include?("docker compose run --rm runner")
 end
