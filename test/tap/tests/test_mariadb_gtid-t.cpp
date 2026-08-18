@@ -6,6 +6,7 @@
  * internally, so the adapter must normalize both representations exactly.
  */
 
+#include <limits>
 #include <string>
 
 #include "mariadb_replication.h"
@@ -13,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(6);
+	plan(12);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -41,6 +42,25 @@ int main() {
 	GTID_Set invalid;
 	ok(!parse_mysql_gtid_executed("not-a-gtid", &invalid),
 	   "reject malformed executed GTID state");
+
+	unsigned long snapshot_position = 0;
+	ok(parse_mysql_snapshot_position("mysql-bin.000001", "4", &snapshot_position)
+	       && snapshot_position == 4,
+	   "parses a valid binary log snapshot position");
+	ok(!parse_mysql_snapshot_position("", "4", &snapshot_position),
+	   "rejects an empty binary log file");
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "", &snapshot_position),
+	   "rejects an empty binary log position");
+	// strtoul() alone accepts leading whitespace, but the protocol field is decimal ASCII.
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", " 4", &snapshot_position),
+	   "rejects a non-ASCII-decimal binary log position");
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "3", &snapshot_position),
+	   "rejects a binary log position below the first valid offset");
+	const std::string overflowing_position =
+		std::to_string(std::numeric_limits<unsigned long>::max()) + "0";
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", overflowing_position.c_str(),
+					  &snapshot_position),
+	   "rejects an overflowing binary log position");
 
 	return exit_status();
 }

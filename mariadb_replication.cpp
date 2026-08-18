@@ -1,7 +1,9 @@
 #include "mariadb_replication.h"
 
+#include <cerrno>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 
 namespace {
@@ -135,5 +137,25 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out) {
 	}
 
 	*out = parsed;
+	return true;
+}
+
+bool parse_mysql_snapshot_position(const char* filename, const char* encoded_position,
+                                   unsigned long* out) {
+	if (!filename || !*filename || !encoded_position || !*encoded_position || !out)
+		return false;
+
+	for (const char* cursor = encoded_position; *cursor; ++cursor) {
+		if (*cursor < '0' || *cursor > '9')
+			return false;
+	}
+
+	errno = 0;
+	char* end = nullptr;
+	const unsigned long position = std::strtoul(encoded_position, &end, 10);
+	if (errno == ERANGE || !end || *end != '\0' || position < 4)
+		return false;
+
+	*out = position;
 	return true;
 }

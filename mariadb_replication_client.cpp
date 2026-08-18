@@ -171,11 +171,12 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 	if (!row || !row[0] || !row[1] || !row[4])
 		throw std::runtime_error(std::string(query) +
 		                         " returned no File, Position, or Executed_Gtid_Set");
+	if (!*row[0])
+		throw std::runtime_error(std::string(query) +
+		                         " returned an empty binary log File");
 
-	errno = 0;
-	char* end = nullptr;
-	const unsigned long position = std::strtoul(row[1], &end, 10);
-	if (errno == ERANGE || !end || *end != '\0' || position < 4)
+	unsigned long position = 0;
+	if (!parse_mysql_snapshot_position(row[0], row[1], &position))
 		throw std::runtime_error(std::string(query) +
 		                         " returned an invalid binary log Position");
 
