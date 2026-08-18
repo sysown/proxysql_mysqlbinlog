@@ -75,6 +75,13 @@ void configure_reader(const CommandLine& cli, int listen_port,
 	reader->tls = tls;
 }
 
+bool is_certificate_verification_failure(const std::string& output) {
+	return output.find("TLS/SSL error: Certificate verification failure") !=
+	           std::string::npos ||
+	       output.find("TLS/SSL error: self-signed certificate in certificate chain") !=
+	           std::string::npos;
+}
+
 }  // namespace
 
 int main() {
@@ -111,8 +118,7 @@ int main() {
 	const std::string strict_reader_output = strict_reader_log.contents();
 	diag("strict reader log: %s", strict_reader_output.c_str());
 	ok(strict_started && !strict_listener_opened && strict_reader_reaped &&
-	       strict_reader_output.find("Certificate verification failure") !=
-	           std::string::npos,
+	       is_certificate_verification_failure(strict_reader_output),
 	   "self-signed MySQL certificate verification rejects the reader before its listener opens");
 
 	TLSOptions tls;

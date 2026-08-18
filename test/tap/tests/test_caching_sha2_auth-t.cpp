@@ -47,6 +47,7 @@ std::string start_caching_sha2_reader(const CommandLine& cli,
 	reader.mysql_user = kReaderUser;
 	reader.mysql_password = kReaderPassword;
 	reader.listen_port = cli.reader_port;
+	reader.tls = cli.tls;
 	reader.foreground = true;
 	if (!cli.reader_log_file.empty())
 		reader.log_file_path = cli.reader_log_file;
