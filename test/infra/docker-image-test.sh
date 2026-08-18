@@ -120,9 +120,9 @@ for distro in $DISTROS; do
   img="${IMAGE_PREFIX}:${distro}"
   fresh_infra
 
-  # Warm the caching_sha2 cache for root@'%' with a TLS client first: the
-  # reader connects with SSL disabled, so it can only pass the warm fast-auth
-  # path, never the cold handshake.
+  # Warm the caching_sha2 cache for root@'%' with a TLS client first. This
+  # exercises the cached authentication path; the reader itself connects with
+  # TLS REQUIRED and test-only server certificate verification disabled.
   docker run --rm --network "$NET" -e MYSQL_PORT="$MYSQL_PORT" \
     --entrypoint bash "$INFRA_IMG" \
     -c 'cli=$(ls /root/opt/mysql/8.4*/bin/mysql); "$cli" -h mysql -P "$MYSQL_PORT" -uroot -proot -e "SELECT 1"'
