@@ -10,8 +10,8 @@ RUN dnf update -y
 RUN dnf install -y @ruby:3.1 ruby-devel rubygems && \
 	gem install fpm
 
-# Connector/C provides authentication plugins and the replication API.
-RUN dnf install -y mariadb-connector-c-devel
+# Build the vendored Connector/C library.
+RUN dnf install -y cmake openssl-devel
 
 # cleanup rpm cache
 RUN yum clean all && \

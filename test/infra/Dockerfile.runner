@@ -11,11 +11,9 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Runtime deps:
-# - libmariadb3: Connector/C and its caching_sha2_password plugin.
 # - libssl3, zlib1g, libzstd1: shared by both.
 # - ca-certificates: TLS handshakes if MySQL is configured for SSL.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libmariadb3 \
         libssl3 \
         zlib1g \
         libzstd1 \

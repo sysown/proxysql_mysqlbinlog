@@ -10,8 +10,8 @@ RUN apt-get -y update && \
 	apt-get -y install ruby ruby-dev ruby-ffi ruby-dotenv && \
 	gem install fpm
 
-# Connector/C provides authentication plugins and the replication API.
-RUN apt-get -y install libmariadb-dev
+# Build the vendored Connector/C library.
+RUN apt-get -y install cmake libssl-dev
 
 # clean apt cache
 RUN apt clean && \

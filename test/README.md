@@ -66,7 +66,7 @@ post-mortem.
 
 ### Host mode (fast iteration)
 
-Needs `g++`, `libmariadb-dev`, and `mariadb_config` on the host.
+Needs `g++`, `make`, `cmake`, and OpenSSL development headers on the host.
 
 ```sh
 docker compose -f test/infra/docker-compose.yml up -d mysql

@@ -5,7 +5,10 @@
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++11 -g -O0 -Wall -Wextra
-MARIADB_CFLAGS ?= $(shell mariadb_config --cflags 2>/dev/null)
+
+.DEFAULT_GOAL := default
+
+include mariadb.mk
 
 LIB_SRCS = tap.cpp command_line.cpp binlog_reader_process.cpp \
            binlog_reader_client.cpp mysql_client.cpp \
@@ -21,8 +24,10 @@ default: lib tests
 
 lib: libtap.a
 
-libtap.a: $(LIB_OBJS) $(GTID_OBJ)
-	ar rcs $@ $^
+libtap.a: $(MARIADB_CONNECTOR_ARCHIVE) $(LIB_OBJS) $(GTID_OBJ)
+	ar rcs $@ $(LIB_OBJS) $(GTID_OBJ)
+
+$(LIB_OBJS): $(MARIADB_CONNECTOR_ARCHIVE)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I. -I../.. -c $< -o $@
