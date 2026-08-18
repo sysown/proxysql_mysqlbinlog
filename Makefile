@@ -28,8 +28,12 @@ export SOURCE_DATE_EPOCH
 
 
 # MariaDB Connector/C provides the client and replication APIs.
-MARIADB_CFLAGS ?= $(shell mariadb_config --cflags 2>/dev/null)
-MARIADB_LIBS ?= $(shell mariadb_config --libs 2>/dev/null)
+MARIADB_CONNECTOR_C_VERSION := 3.4.8
+MARIADB_CONNECTOR_C_DIR := mariadb-connector-c-$(MARIADB_CONNECTOR_C_VERSION)
+MARIADB_CONNECTOR_C_ARCHIVE := $(MARIADB_CONNECTOR_C_DIR).tar.gz
+MARIADB_CONNECTOR_C_LIBRARY := $(MARIADB_CONNECTOR_C_DIR)/build/libmariadb/libmariadbclient.a
+MARIADB_CFLAGS := -I./$(MARIADB_CONNECTOR_C_DIR)/include -I./$(MARIADB_CONNECTOR_C_DIR)/build/include
+MARIADB_LIBS := $(MARIADB_CONNECTOR_C_LIBRARY) -ldl -lm -lssl -lcrypto
 
 # include paths
 IDIRS :=	-I./libev \
@@ -48,8 +52,22 @@ default: proxysql_binlog_reader
 
 SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp mariadb_replication.cpp mariadb_replication_client.cpp
 
-proxysql_binlog_reader: $(SRCS) libev libdaemon
-	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) -rdynamic $(MARIADB_LIBS) -ldl -lssl -lcrypto -lpthread
+proxysql_binlog_reader: $(SRCS) libev libdaemon mariadb-connector
+	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) -rdynamic $(MARIADB_LIBS) -lpthread
+
+$(MARIADB_CONNECTOR_C_LIBRARY): $(MARIADB_CONNECTOR_C_ARCHIVE) $(MARIADB_CONNECTOR_C_ARCHIVE).sha256
+	sha256sum -c $(MARIADB_CONNECTOR_C_ARCHIVE).sha256
+	rm -rf $(MARIADB_CONNECTOR_C_DIR)
+	tar -zxf $(MARIADB_CONNECTOR_C_ARCHIVE)
+	cmake -S $(MARIADB_CONNECTOR_C_DIR) -B $(MARIADB_CONNECTOR_C_DIR)/build -DCMAKE_BUILD_TYPE=Release -DWITH_UNIT_TESTS=OFF -DWITH_CURL=OFF -DCLIENT_PLUGIN_CACHING_SHA2_PASSWORD=STATIC
+	$(MAKE) -C $(MARIADB_CONNECTOR_C_DIR)/build mariadbclient
+
+.PHONY: mariadb-connector
+mariadb-connector: $(MARIADB_CONNECTOR_C_LIBRARY)
+
+.PHONY: verify-static-connector-c
+verify-static-connector-c: proxysql_binlog_reader
+	test/verify-static-connector-c.sh ./proxysql_binlog_reader
 
 libev/.libs/libev.a:
 	rm -rf libev-*/ || true
@@ -144,6 +162,7 @@ cleanbuild:
 	rm -rf libev-*/
 	rm -rf libslave-*/
 	rm -rf libdaemon-*/
+	rm -rf $(MARIADB_CONNECTOR_C_DIR)
 	find . -name '*.a' -delete
 	find . -name '*.o' -delete
 
