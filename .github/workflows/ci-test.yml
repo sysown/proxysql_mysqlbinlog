@@ -57,8 +57,8 @@ jobs:
 
       # ------------------------------------------------------------------
       # Tests — one step per MySQL version so failures are visible in the
-      # workflow run UI.  continue-on-error keeps later versions running
-      # when an earlier one fails.
+      # workflow run UI.  Each result is a required signal for this branch;
+      # do not mask later failures with continue-on-error.
       #
       # All steps share a single RUN_ID, producing one log tree:
       #   test/logs/ci-<ts>/
@@ -73,7 +73,6 @@ jobs:
           mkdir -p "test/logs/${RUN_ID}"
 
       - name: Test MySQL 5.7
-        continue-on-error: true
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '57'
@@ -86,7 +85,6 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.0
-        continue-on-error: true
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '80'
@@ -99,7 +97,6 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.4
-        continue-on-error: true
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '84'
@@ -112,7 +109,6 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.0
-        continue-on-error: true
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '90'
@@ -125,7 +121,6 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.4
-        continue-on-error: true
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '94'
