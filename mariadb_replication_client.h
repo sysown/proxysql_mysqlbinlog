@@ -6,12 +6,14 @@
 #include <string>
 
 #include "proxysql_gtid.h"
+#include "tls_options.h"
 
 struct MariaDBConnectionOptions {
 	std::string host;
 	unsigned int port;
 	std::string user;
 	std::string password;
+	TLSOptions tls;
 };
 
 /**

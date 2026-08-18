@@ -138,12 +138,32 @@ void MariaDBReplicationClient::connect() {
 	if (!impl_->mysql)
 		throw std::runtime_error("mysql_init failed");
 
+	std::string tls_error;
+	if (!tls_options_valid(impl_->options.tls, &tls_error)) {
+		std::runtime_error error("TLS configuration failed: " + tls_error);
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw error;
+	}
+	if (!apply_tls_options(impl_->mysql, impl_->options.tls, &tls_error)) {
+		std::runtime_error error("TLS configuration failed: " + tls_error);
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw error;
+	}
+
 	const unsigned int timeout_seconds = 10;
 	mysql_options(impl_->mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout_seconds);
 	if (!mysql_real_connect(impl_->mysql, impl_->options.host.c_str(),
 	                        impl_->options.user.c_str(), impl_->options.password.c_str(),
 	                        nullptr, impl_->options.port, nullptr, 0)) {
 		std::runtime_error error = connector_error("mysql_real_connect failed", impl_->mysql);
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw error;
+	}
+	if (!verify_tls_connection(impl_->mysql, impl_->options.tls, &tls_error)) {
+		std::runtime_error error("TLS connection failed: " + tls_error);
 		mysql_close(impl_->mysql);
 		impl_->mysql = nullptr;
 		throw error;

@@ -50,7 +50,7 @@ DEPS :=		./libev/.libs/libev.a \
 .PHONY: default
 default: proxysql_binlog_reader
 
-SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp mariadb_replication.cpp mariadb_replication_client.cpp
+SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp mariadb_replication.cpp mariadb_replication_client.cpp tls_options.cpp
 
 proxysql_binlog_reader: $(SRCS) libev libdaemon mariadb-connector
 	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) -rdynamic $(MARIADB_LIBS) -lpthread

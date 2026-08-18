@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <cerrno>
 #include <ev.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -686,6 +687,14 @@ void usage(const char* name) {
 	"-b: Batched updates, 0 or 1 (default 1). Requires ProxySQL v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << " or later; set to 0 for older versions.\n"
 	"-f: Run in foreground.\n"
 	"-v: Outputs build version.\n"
+	"--ssl-mode: TLS mode: DISABLED, PREFERRED, or REQUIRED (default REQUIRED).\n"
+	"--ssl-verify-server-cert: Verify the server certificate, 0 or 1 (default 1).\n"
+	"--ssl-ca: CA certificate file.\n"
+	"--ssl-capath: CA certificate directory.\n"
+	"--ssl-cert: Client certificate file.\n"
+	"--ssl-key: Client private-key file.\n"
+	"--ssl-cipher: TLS cipher list.\n"
+	"--tls-version: TLS protocol version.\n"
 	<< std::endl;
 }
 
@@ -700,11 +709,36 @@ int main(int argc, char** argv) {
 	std::string password;
 	std::string errorstr;
 	unsigned int port = DEFAULT_MYSQL_PORT;
+	TLSOptions tls_options;
+
+	enum {
+		OPTION_SSL_MODE = 1000,
+		OPTION_SSL_VERIFY_SERVER_CERT,
+		OPTION_SSL_CA,
+		OPTION_SSL_CAPATH,
+		OPTION_SSL_CERT,
+		OPTION_SSL_KEY,
+		OPTION_SSL_CIPHER,
+		OPTION_TLS_VERSION,
+	};
+	static const struct option long_options[] = {
+		{"ssl-mode", required_argument, nullptr, OPTION_SSL_MODE},
+		{"ssl-verify-server-cert", required_argument, nullptr,
+		 OPTION_SSL_VERIFY_SERVER_CERT},
+		{"ssl-ca", required_argument, nullptr, OPTION_SSL_CA},
+		{"ssl-capath", required_argument, nullptr, OPTION_SSL_CAPATH},
+		{"ssl-cert", required_argument, nullptr, OPTION_SSL_CERT},
+		{"ssl-key", required_argument, nullptr, OPTION_SSL_KEY},
+		{"ssl-cipher", required_argument, nullptr, OPTION_SSL_CIPHER},
+		{"tls-version", required_argument, nullptr, OPTION_TLS_VERSION},
+		{nullptr, 0, nullptr, 0},
+	};
 
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfB:b:t:h:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt_long(argc, argv, "vfB:b:t:h:u:p:P:l:L:",
+	                                 long_options, nullptr))) {
 		switch (c) {
 			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
@@ -722,10 +756,38 @@ int main(int argc, char** argv) {
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
+			case OPTION_SSL_MODE:
+				if (!parse_tls_mode(optarg, &tls_options.mode)) {
+					std::cerr << "invalid SSL mode" << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
+			case OPTION_SSL_VERIFY_SERVER_CERT:
+				if (!parse_tls_boolean(optarg,
+				                       &tls_options.verify_server_certificate)) {
+					std::cerr << "invalid SSL verification value" << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
+			case OPTION_SSL_CA: tls_options.ca_file = optarg; break;
+			case OPTION_SSL_CAPATH: tls_options.ca_path = optarg; break;
+			case OPTION_SSL_CERT: tls_options.certificate_file = optarg; break;
+			case OPTION_SSL_KEY: tls_options.key_file = optarg; break;
+			case OPTION_SSL_CIPHER: tls_options.cipher = optarg; break;
+			case OPTION_TLS_VERSION: tls_options.version = optarg; break;
 			default:
 				usage(argv[0]);
 				return 1;
 		}
+	}
+
+	std::string tls_error;
+	if (!tls_options_valid(tls_options, &tls_error)) {
+		std::cerr << tls_error << std::endl;
+		usage(argv[0]);
+		return 1;
 	}
 
 	if (errorstr.empty()) {
@@ -824,6 +886,7 @@ __start_label:
 	connection_options.port = port;
 	connection_options.user = user;
 	connection_options.password = password;
+	connection_options.tls = tls_options;
 
 	try {
 		proxy_info("proxysql_binlog_reader version %s", BINLOG_VERSION);
