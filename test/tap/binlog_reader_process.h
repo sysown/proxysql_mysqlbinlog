@@ -5,6 +5,8 @@
 
 #include <string>
 
+#include "tls_options.h"
+
 /** Thin wrapper to start/stop proxysql_binlog_reader process. */
 class BinlogReaderProcess {
    public:
@@ -15,6 +17,7 @@ class BinlogReaderProcess {
 	std::string mysql_password = "root";
 	int         listen_port = 6020;
 	std::string log_file_path;
+	TLSOptions  tls;
 	int         freq_ms = -1;
 	int         batching = -1;
 	long        max_netbuflen = -1;

@@ -2,6 +2,7 @@
 
 #include "command_line.h"
 #include "tap.h"
+#include "tls_options.h"
 
 MySQLClient::~MySQLClient() {
 	if (mysql_) {
@@ -23,10 +24,25 @@ bool MySQLClient::connect(const CommandLine& cli) {
 		mysql_close(mysql_);
 		mysql_ = nullptr;
 	}
+	last_error_.clear();
+
+	if (!cli.tls_config_error.empty()) {
+		last_error_ = "TLS configuration error: " + cli.tls_config_error;
+		return false;
+	}
 
 	mysql_ = mysql_init(nullptr);
 	if (!mysql_) {
-		last_error_ = "mysql_init failed";
+		last_error_ = "MySQL connection initialization error: mysql_init failed";
+		return false;
+	}
+
+	std::string tls_error;
+	if (!tls_options_valid(cli.tls, &tls_error) ||
+	    !apply_tls_options(mysql_, cli.tls, &tls_error)) {
+		last_error_ = "TLS configuration error: " + tls_error;
+		mysql_close(mysql_);
+		mysql_ = nullptr;
 		return false;
 	}
 
@@ -34,7 +50,13 @@ bool MySQLClient::connect(const CommandLine& cli) {
 	                        cli.mysql_user.c_str(),
 	                        cli.mysql_password.c_str(), nullptr, cli.mysql_port,
 	                        nullptr, 0)) {
-		last_error_ = mysql_error(mysql_);
+		last_error_ = "MySQL connection error: " + std::string(mysql_error(mysql_));
+		mysql_close(mysql_);
+		mysql_ = nullptr;
+		return false;
+	}
+	if (!verify_tls_connection(mysql_, cli.tls, &tls_error)) {
+		last_error_ = "TLS connection error: " + tls_error;
 		mysql_close(mysql_);
 		mysql_ = nullptr;
 		return false;
