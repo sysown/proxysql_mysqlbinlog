@@ -17,9 +17,9 @@ struct MariaDBConnectionOptions {
 /**
  * Small ownership wrapper around MariaDB Connector/C's replication API.
  *
- * It starts at the source's current binlog position after taking a snapshot
- * of @@GLOBAL.gtid_executed. This mirrors the reader's historical libslave
- * behavior: the listener reports current state, then receives new GTIDs.
+ * It starts at the source's binlog position captured with the GTID set it
+ * publishes. This mirrors the reader's historical libslave behavior: the
+ * listener reports current state, then receives new GTIDs.
  */
 class MariaDBReplicationClient {
    public:
@@ -32,8 +32,9 @@ class MariaDBReplicationClient {
 	MariaDBReplicationClient& operator=(const MariaDBReplicationClient&) = delete;
 
 	void connect();
-	GTID_Set executed_gtid_set();
+	GTID_Set snapshot();
 	void open_stream();
+	uint32_t replication_server_id() const;
 	void stream_events(const GTIDCallback& on_gtid,
 	                   const std::function<bool()>& is_stopping);
 

@@ -1,9 +1,15 @@
 #include "mariadb_replication_client.h"
 
+#include <atomic>
+#include <cerrno>
+#include <cstdint>
 #include <cstdlib>
+#include <fcntl.h>
 #include <stdexcept>
 
 #include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
 
 #include <mysql.h>
 #include <mariadb_rpl.h>
@@ -11,8 +17,6 @@
 #include "mariadb_replication.h"
 
 namespace {
-
-const unsigned int kReplicationServerId = 6020;
 
 std::runtime_error connector_error(const char* action, MYSQL* mysql) {
 	return std::runtime_error(std::string(action) + ": " + ::mysql_error(mysql));
@@ -36,15 +40,80 @@ class Result {
 	MYSQL_RES* value_;
 };
 
+uint32_t mix_server_id(uint64_t value) {
+	value ^= value >> 33;
+	value *= UINT64_C(0xff51afd7ed558ccd);
+	value ^= value >> 33;
+	value *= UINT64_C(0xc4ceb9fe1a85ec53);
+	value ^= value >> 33;
+	return static_cast<uint32_t>(value ^ (value >> 32));
+}
+
+bool read_system_entropy(uint32_t* value) {
+	int fd = open("/dev/urandom", O_RDONLY);
+	if (fd < 0)
+		return false;
+
+	unsigned char* data = reinterpret_cast<unsigned char*>(value);
+	size_t remaining = sizeof(*value);
+	while (remaining > 0) {
+		const ssize_t bytes = read(fd, data, remaining);
+		if (bytes > 0) {
+			data += bytes;
+			remaining -= static_cast<size_t>(bytes);
+			continue;
+		}
+		if (bytes < 0 && errno == EINTR)
+			continue;
+		close(fd);
+		return false;
+	}
+	close(fd);
+	return true;
+}
+
+uint32_t initial_replication_server_id() {
+	struct timespec now {};
+	if (clock_gettime(CLOCK_REALTIME, &now) != 0)
+		now.tv_sec = time(nullptr);
+
+	uint32_t entropy = 0;
+	if (!read_system_entropy(&entropy)) {
+		entropy = mix_server_id((static_cast<uint64_t>(now.tv_sec) << 32) ^
+		                        static_cast<uint64_t>(now.tv_nsec) ^
+		                        static_cast<uint64_t>(getpid()));
+	}
+
+	const uint32_t id = mix_server_id(
+		static_cast<uint64_t>(entropy) ^
+		(static_cast<uint64_t>(now.tv_sec) << 32) ^
+		static_cast<uint64_t>(now.tv_nsec) ^
+		static_cast<uint64_t>(getpid()));
+	return id == 0 ? 1 : id;
+}
+
+uint32_t next_replication_server_id() {
+	static std::atomic<uint32_t> next(initial_replication_server_id());
+	uint32_t id = next.fetch_add(1, std::memory_order_relaxed);
+	if (id == 0)
+		id = next.fetch_add(1, std::memory_order_relaxed);
+	return id;
+}
+
 }  // namespace
 
 struct MariaDBReplicationClient::Impl {
 	explicit Impl(const MariaDBConnectionOptions& value)
-	    : options(value), mysql(nullptr), rpl(nullptr) {}
+	    : options(value), mysql(nullptr), rpl(nullptr), snapshot_position(0),
+	      has_snapshot(false), server_id(next_replication_server_id()) {}
 
 	MariaDBConnectionOptions options;
 	MYSQL* mysql;
 	MARIADB_RPL* rpl;
+	std::string snapshot_filename;
+	unsigned long snapshot_position;
+	bool has_snapshot;
+	unsigned int server_id;
 };
 
 MariaDBReplicationClient::MariaDBReplicationClient(
@@ -81,22 +150,43 @@ void MariaDBReplicationClient::connect() {
 	}
 }
 
-GTID_Set MariaDBReplicationClient::executed_gtid_set() {
+GTID_Set MariaDBReplicationClient::snapshot() {
 	if (!impl_->mysql)
 		throw std::runtime_error("replication connection is not initialized");
-	if (mysql_query(impl_->mysql, "SELECT @@GLOBAL.gtid_executed"))
-		throw connector_error("cannot read @@GLOBAL.gtid_executed", impl_->mysql);
+
+	const char* query = "SHOW BINARY LOG STATUS";
+	if (mysql_query(impl_->mysql, query)) {
+		query = "SHOW MASTER STATUS";
+		if (mysql_query(impl_->mysql, query))
+			throw connector_error("cannot read binary log status", impl_->mysql);
+	}
 
 	Result result(mysql_store_result(impl_->mysql));
 	if (!result.get())
-		throw connector_error("cannot store @@GLOBAL.gtid_executed", impl_->mysql);
+		throw connector_error("cannot store binary log status", impl_->mysql);
+	if (mysql_num_fields(result.get()) < 5)
+		throw std::runtime_error(std::string(query) +
+		                         " returned fewer than five columns");
 	MYSQL_ROW row = mysql_fetch_row(result.get());
-	if (!row || !row[0])
-		throw std::runtime_error("@@GLOBAL.gtid_executed returned no value");
+	if (!row || !row[0] || !row[1] || !row[4])
+		throw std::runtime_error(std::string(query) +
+		                         " returned no File, Position, or Executed_Gtid_Set");
+
+	errno = 0;
+	char* end = nullptr;
+	const unsigned long position = std::strtoul(row[1], &end, 10);
+	if (errno == ERANGE || !end || *end != '\0' || position < 4)
+		throw std::runtime_error(std::string(query) +
+		                         " returned an invalid binary log Position");
 
 	GTID_Set set;
-	if (!parse_mysql_gtid_executed(row[0], &set))
-		throw std::runtime_error("cannot parse @@GLOBAL.gtid_executed");
+	if (!parse_mysql_gtid_executed(row[4], &set))
+		throw std::runtime_error(std::string(query) +
+		                         " returned an invalid Executed_Gtid_Set");
+
+	impl_->snapshot_filename = row[0];
+	impl_->snapshot_position = position;
+	impl_->has_snapshot = true;
 	return set;
 }
 
@@ -105,38 +195,23 @@ void MariaDBReplicationClient::open_stream() {
 		throw std::runtime_error("replication connection is not initialized");
 	if (impl_->rpl)
 		throw std::runtime_error("replication stream is already open");
+	if (!impl_->has_snapshot)
+		throw std::runtime_error("replication snapshot has not been captured");
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
-	// MySQL 8.4 removed SHOW MASTER STATUS. Older MySQL releases (and
-	// MariaDB) retain the legacy spelling, so try it only when the new one
-	// is unavailable.
-	if (mysql_query(impl_->mysql, "SHOW BINARY LOG STATUS") &&
-	    mysql_query(impl_->mysql, "SHOW MASTER STATUS"))
-		throw connector_error("cannot read binary log status", impl_->mysql);
-
-	Result result(mysql_store_result(impl_->mysql));
-	if (!result.get())
-		throw connector_error("cannot store master status", impl_->mysql);
-	MYSQL_ROW row = mysql_fetch_row(result.get());
-	if (!row || !row[0] || !row[1])
-		throw std::runtime_error("SHOW MASTER STATUS returned no binary log position");
-
-	char* end = nullptr;
-	const unsigned long position = std::strtoul(row[1], &end, 10);
-	if (!end || *end != '\0' || position < 4)
-		throw std::runtime_error("SHOW MASTER STATUS returned an invalid binary log position");
 
 	impl_->rpl = mariadb_rpl_init(impl_->mysql);
 	if (!impl_->rpl)
 		throw std::runtime_error("mariadb_rpl_init failed");
 
-	const std::string filename(row[0]);
 	if (mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_FILENAME,
-	                         const_cast<char*>(filename.c_str()), filename.size()) ||
-	    mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_START, position) ||
+	                         const_cast<char*>(impl_->snapshot_filename.c_str()),
+	                         impl_->snapshot_filename.size()) ||
+	    mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_START,
+	                         impl_->snapshot_position) ||
 	    mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_SERVER_ID,
-	                         kReplicationServerId)) {
+	                         impl_->server_id)) {
 		std::runtime_error error = rpl_error("cannot configure replication stream", impl_->rpl);
 		mariadb_rpl_close(impl_->rpl);
 		impl_->rpl = nullptr;
@@ -148,6 +223,10 @@ void MariaDBReplicationClient::open_stream() {
 		impl_->rpl = nullptr;
 		throw error;
 	}
+}
+
+uint32_t MariaDBReplicationClient::replication_server_id() const {
+	return impl_->server_id;
 }
 
 void MariaDBReplicationClient::stream_events(

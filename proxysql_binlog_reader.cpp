@@ -2,6 +2,7 @@
 #include <signal.h>
 
 #include <assert.h>
+#include <cerrno>
 #include <ev.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -96,6 +97,24 @@ unsigned int listen_port = DEFAULT_LISTEN_PORT;
 size_t max_netbuflen = 0;
 uint64_t update_freq_ms = 0;
 bool update_batching = true;
+
+static void test_delay_after_snapshot() {
+	const char* const value =
+		getenv("PROXYSQL_BINLOG_READER_TEST_AFTER_SNAPSHOT_DELAY_MS");
+	if (!value || !*value)
+		return;
+
+	errno = 0;
+	char* end = NULL;
+	const unsigned long delay_ms = strtoul(value, &end, 10);
+	if (errno == ERANGE || !end || *end != '\0' || delay_ms > 60000) {
+		proxy_error("Ignoring invalid post-snapshot test delay: '%s'", value);
+		return;
+	}
+
+	proxy_info("Applying post-snapshot test delay of %lu ms", delay_ms);
+	usleep(static_cast<useconds_t>(delay_ms * 1000));
+}
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -816,7 +835,7 @@ __start_label:
 		proxy_info("Initializing client...");
 		client.connect();
 
-		curpos = client.executed_gtid_set();
+		curpos = client.snapshot();
 		std::string s1 = position_to_string(curpos);
 
 		// Wait until a valid 'GTID' has been executed for requesting binlog
@@ -824,13 +843,14 @@ __start_label:
 			proxy_info("'Executed_Gtid_Set' found empty, retrying...");
 			usleep(1000 * 1000);
 
-			curpos = client.executed_gtid_set();
+			curpos = client.snapshot();
 			s1 = position_to_string(curpos);
 		}
 		proxy_info("Last executed GTID: '%s'", s1.c_str());
 
 	pthread_t thread_id;
 	pthread_create(&thread_id, NULL, server , NULL);
+		test_delay_after_snapshot();
 
 		try {
 
