@@ -8,6 +8,56 @@ on:
   workflow_dispatch:
 
 jobs:
+  packages:
+    name: package (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build ${{ matrix.target }} toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            -f docker/build/build-${{ matrix.target }}/Dockerfile \
+            .
+
+      - name: Build ${{ matrix.target }} package
+        run: make build-${{ matrix.target }}
+
+      - name: Verify static Connector/C linkage
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc 'make verify-static-connector-c'
+
+      - name: Inspect package metadata
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog:ro \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc '
+              set -euo pipefail
+              case "${{ matrix.target }}" in
+                centos*) dependencies="$(rpm -qp --requires binaries/*.rpm)" ;;
+                *) dependencies="$(dpkg-deb -f binaries/*.deb Depends)" ;;
+              esac
+              printf "%s\\n" "$dependencies"
+              if grep -Eqi "libmariadb|mariadb-connector-c|libmysqlclient" <<<"$dependencies"; then
+                echo "package metadata must not depend on a MariaDB/MySQL client library" >&2
+                exit 1
+              fi
+            '
+
   test:
     name: test
     runs-on: ubuntu-latest
@@ -30,16 +80,13 @@ jobs:
             -f docker/build/build-ubuntu24/Dockerfile \
             .
 
-      - name: Build reader binary (make build-ubuntu24)
-        run: make build-ubuntu24
-
-      - name: Build test framework (make -C test/tap)
+      - name: Build and inspect vendored reader
         run: |
           docker run --rm \
             -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
-            -w /opt/proxysql_mysqlbinlog/test/tap \
+            -w /opt/proxysql_mysqlbinlog \
             proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
-            make
+            bash -lc 'make cleanbuild && make -j2 && make verify-static-connector-c && make -C test/tap'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
