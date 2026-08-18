@@ -5,7 +5,7 @@
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++11 -g -O0 -Wall -Wextra
-MYSQL_CFLAGS ?= $(shell mysql_config --cflags 2>/dev/null)
+MARIADB_CFLAGS ?= $(shell mariadb_config --cflags 2>/dev/null)
 
 LIB_SRCS = tap.cpp command_line.cpp binlog_reader_process.cpp \
            binlog_reader_client.cpp mysql_client.cpp \
@@ -25,7 +25,7 @@ libtap.a: $(LIB_OBJS) $(GTID_OBJ)
 	ar rcs $@ $^
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(MYSQL_CFLAGS) -I. -I../.. -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I. -I../.. -c $< -o $@
 
 proxysql_gtid.o: ../../proxysql_gtid.cpp ../../proxysql_gtid.h
 	$(CXX) $(CXXFLAGS) -I../.. -c $< -o $@

@@ -3,8 +3,8 @@
  * Reproduces the cold caching_sha2_password path used by the reader's
  * replication connection.  The test resets the dedicated replication user
  * immediately before spawning the reader so MySQL cannot use a warmed auth
- * cache.  A libslave build that cannot request the server public key must not
- * reach the reader listener or emit GTID messages.
+ * cache. A reader client that cannot complete the cold authentication
+ * handshake must not reach the listener or emit GTID messages.
  */
 
 #include <string>

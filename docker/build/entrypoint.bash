@@ -35,6 +35,13 @@ make -j $(ncpu)
 echo "==> Packaging"
 cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${PKG_DIST}
 
+FPM_DEPENDS=()
+if [[ "${PKG_KIND}" = "deb" ]]; then
+	FPM_DEPENDS+=(--depends libmariadb3)
+else
+	FPM_DEPENDS+=(--depends mariadb-connector-c)
+fi
+
 fpm \
 	--debug \
 	-s dir \
@@ -49,6 +56,7 @@ fpm \
 	--url 'https://proxysql.com' \
 	--vendor 'ProxySQL LLC' \
 	--maintainer '<info@proxysql.com>' \
+	"${FPM_DEPENDS[@]}" \
 	--debug-workspace \
 	--workdir /tmp/ \
 	--package /opt/proxysql_mysqlbinlog/ \

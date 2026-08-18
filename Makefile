@@ -27,17 +27,17 @@ SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD || date +%s)
 export SOURCE_DATE_EPOCH
 
 
-# include paths
-IDIRS :=	-I./libslave \
-			-I./libev \
-			-I./libdaemon
+# MariaDB Connector/C provides the client and replication APIs.
+MARIADB_CFLAGS ?= $(shell mariadb_config --cflags 2>/dev/null)
+MARIADB_LIBS ?= $(shell mariadb_config --libs 2>/dev/null)
 
-# link paths
-LDIRS :=	-L/usr/lib64/mysql
+# include paths
+IDIRS :=	-I./libev \
+			-I./libdaemon \
+			$(MARIADB_CFLAGS)
 
 # link archives
-DEPS :=		./libslave/libslave.a \
-			./libev/.libs/libev.a \
+DEPS :=		./libev/.libs/libev.a \
 			./libdaemon/libdaemon/.libs/libdaemon.a
 
 
@@ -46,11 +46,10 @@ DEPS :=		./libslave/libslave.a \
 .PHONY: default
 default: proxysql_binlog_reader
 
-SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp
+SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp mariadb_replication.cpp mariadb_replication_client.cpp
 
-proxysql_binlog_reader: libev libdaemon libslave
-	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) $(LDIRS) -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
-# -lperconaserverclient if compiled with percona server
+proxysql_binlog_reader: $(SRCS) libev libdaemon
+	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) -rdynamic $(MARIADB_LIBS) -ldl -lssl -lcrypto -lpthread
 
 libev/.libs/libev.a:
 	rm -rf libev-*/ || true

@@ -12,9 +12,8 @@ LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 RUN yum -y update
 
-# dependencies
-RUN yum -y install \
-	boost-system
+# Runtime library and authentication plugins for Connector/C.
+RUN yum -y install mariadb-connector-c
 
 # copy package from context
 COPY proxysql-mysqlbinlog-*.rpm ./

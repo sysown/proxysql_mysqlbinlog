@@ -11,7 +11,7 @@ test/
 │   ├── tap.{h,cpp}         # TAP primitives (plan/ok/diag/exit_status)
 │   ├── command_line.*      # env-driven config loader
 │   ├── binlog_reader_*.*   # reader process wrapper + on-wire client
-│   ├── mysql_client.*      # thin libmysqlclient wrapper
+│   ├── mysql_client.*      # thin MariaDB Connector/C wrapper
 │   ├── tap_utils.h         # setup_reader() helper
 │   ├── run.sh              # per-version test runner
 │   ├── Makefile            # builds libtap.a + tests/*-t
@@ -66,7 +66,7 @@ post-mortem.
 
 ### Host mode (fast iteration)
 
-Needs `g++`, `libmysqlclient-dev`, and `mysql_config` on the host.
+Needs `g++`, `libmariadb-dev`, and `mariadb_config` on the host.
 
 ```sh
 docker compose -f test/infra/docker-compose.yml up -d mysql

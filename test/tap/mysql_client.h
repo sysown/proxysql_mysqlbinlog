@@ -1,14 +1,14 @@
 #ifndef BINLOG_READER_TEST_MYSQL_CLIENT_H
 #define BINLOG_READER_TEST_MYSQL_CLIENT_H
 
-#include <mysql/mysql.h>
+#include <mysql.h>
 
 #include <string>
 
 class CommandLine;
 
 /**
- * Thin libmysqlclient connection wrapper for binlog_reader tests.
+ * Thin MariaDB Connector/C connection wrapper for binlog_reader tests.
  *
  * Holds one MySQL connection. Every exec() emits a TAP diag line
  * `host=... port=... user=... query='...' status=PASS|FAIL` so each
@@ -70,7 +70,7 @@ class MySQLClient {
 	/** Server-reported error text from the most recent failed call. */
 	const std::string& last_error() const { return last_error_; }
 
-	/** Raw libmysqlclient handle for escape-hatch use. */
+	/** Raw Connector/C handle for escape-hatch use. */
 	MYSQL* raw() { return mysql_; }
 
    private:

@@ -21,6 +21,15 @@ jobs:
       # Builds
       # ------------------------------------------------------------------
 
+      # Build the toolchain from this checkout so the reader and TAP
+      # binaries use the same Connector/C version as the runtime image.
+      - name: Build Ubuntu 24 toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
+            -f docker/build/build-ubuntu24/Dockerfile \
+            .
+
       - name: Build reader binary (make build-ubuntu24)
         run: make build-ubuntu24
 

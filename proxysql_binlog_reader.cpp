@@ -23,8 +23,7 @@
 #include <libdaemon/dpid.h>
 #include <libdaemon/dexec.h>
 
-#include "Slave.h"
-#include "DefaultExtState.h"
+#include "mariadb_replication_client.h"
 #include "proxysql_gtid.h"
 
 #define BINLOG_VERSION GITVERSION
@@ -82,8 +81,8 @@ std::vector<uint64_t> trx_ids;
 static struct ev_loop *loop;
 
 volatile sig_atomic_t stopflag = 0;
-slave::Slave* sl = NULL;
-slave::Position curpos;
+MariaDBReplicationClient* replication_client = NULL;
+GTID_Set curpos;
 
 int pipefd[2];
 
@@ -261,37 +260,8 @@ void daemonize_phase1(char *argv0) {
 	}
 }
 
-std::string position_to_string(slave::Position &curpos) {
-	GTID_Set gtid_set;
-
-	if (!update_batching) {
-		// Generatate a message with individual updates per GTID.
-		std::string out;
-
-		for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-			auto uuid = it->first;
-			for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-				gtid_set.clear();
-				gtid_set.add(uuid, itr->first, itr->second);
-
-				if (!out.empty()) {
-					out += ",";
-				}
-				out += gtid_set.to_string();
-			}
-		}
-
-		return out;
-	}
-
-	// GTID string for ranged updates.
-	for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-		auto uuid = it->first;
-		for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-			gtid_set.add(uuid, itr->first, itr->second);
-		}
-	}
-	return gtid_set.to_string();
+std::string position_to_string(GTID_Set& position) {
+	return position.to_string();
 }
 
 class Client_Data {
@@ -585,7 +555,8 @@ void timer_cb(struct ev_loop *loop, struct ev_timer *t, int revents) {
 
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 	stopflag = 1;
-	sl->close_connection();
+	if (replication_client)
+		replication_client->interrupt();
 	//std::cout << " Received signal. Stopping at:" << std::endl;
 	std::string s1 = position_to_string(curpos);
 	//std::cout << s1 << std::endl;
@@ -652,22 +623,21 @@ class GTID_Server_Dumper {
 	}
 };
 
-void bench_xid_callback(unsigned int server_id) {
+void bench_gtid_callback(const std::string& uuid, uint64_t trx_id) {
 	pthread_mutex_lock(&pos_mutex);
 
-	const char *uuid=sl->gtid_next.first.c_str();
-	uint64_t trx_id = sl->gtid_next.second;
-	if (last_trx_id == trx_id && !strcmp(last_server_uuid, uuid)) {
+	if (last_trx_id == trx_id && uuid == last_server_uuid) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
 		return;
 	}
 
-	strcpy(last_server_uuid, uuid);
+	strncpy(last_server_uuid, uuid.c_str(), sizeof(last_server_uuid) - 1);
+	last_server_uuid[sizeof(last_server_uuid) - 1] = 0;
 	last_trx_id = trx_id;
-	server_uuids.push_back(strdup(uuid));
+	server_uuids.push_back(strdup(uuid.c_str()));
 	trx_ids.push_back(trx_id);
-	curpos.addGtid(sl->gtid_next);
+	curpos.add(uuid, trx_id);
 	pthread_mutex_unlock(&pos_mutex);
 	if (!update_freq_ms) {
 		ev_async_send(loop, &async);
@@ -830,29 +800,23 @@ __start_label:
 {
 	pthread_mutex_init(&pos_mutex, NULL);
 
-	slave::MasterInfo masterinfo;
-
-	masterinfo.conn_options.mysql_host = host;
-	masterinfo.conn_options.mysql_port = port;
-	masterinfo.conn_options.mysql_user = user;
-	masterinfo.conn_options.mysql_pass = password;
+	MariaDBConnectionOptions connection_options;
+	connection_options.host = host;
+	connection_options.port = port;
+	connection_options.user = user;
+	connection_options.password = password;
 
 	try {
 		proxy_info("proxysql_binlog_reader version %s", BINLOG_VERSION);
 
-		slave::DefaultExtState sDefExtState;
-		slave::Slave slave(masterinfo, sDefExtState);
-		sl = &slave;
-
-		slave.setXidCallback(bench_xid_callback);
+		MariaDBReplicationClient client(connection_options);
+		replication_client = &client;
 
 		//std::cout << "Initializing client..." << std::endl;
 		proxy_info("Initializing client...");
-		slave.init();
-		// enable GTID
-		slave.enableGtid();
+		client.connect();
 
-		curpos = slave.getLastBinlogPos();
+		curpos = client.executed_gtid_set();
 		std::string s1 = position_to_string(curpos);
 
 		// Wait until a valid 'GTID' has been executed for requesting binlog
@@ -860,12 +824,10 @@ __start_label:
 			proxy_info("'Executed_Gtid_Set' found empty, retrying...");
 			usleep(1000 * 1000);
 
-			curpos = slave.getLastBinlogPos();
+			curpos = client.executed_gtid_set();
 			s1 = position_to_string(curpos);
 		}
 		proxy_info("Last executed GTID: '%s'", s1.c_str());
-
-		sDefExtState.setMasterPosition(curpos);
 
 	pthread_t thread_id;
 	pthread_create(&thread_id, NULL, server , NULL);
@@ -873,11 +835,8 @@ __start_label:
 		try {
 
 			proxy_info("Reading binlogs...");
-			slave.get_remote_binlog([&] ()
-				{
-					const slave::MasterInfo& sMasterInfo = slave.masterInfo();
-					return (isStopping());
-				});
+			client.open_stream();
+			client.stream_events(bench_gtid_callback, isStopping);
 
 
 		} catch (std::exception& ex) {
@@ -887,9 +846,10 @@ __start_label:
 
 		pthread_join(thread_id, NULL);
 	} catch (std::exception& ex) {
-		std::cout << "Error in initializing slave: " << ex.what() << std::endl;
+		std::cout << "Error in initializing replication client: " << ex.what() << std::endl;
 		error = true;
 	}
+	replication_client = NULL;
 }
 
 finish:
