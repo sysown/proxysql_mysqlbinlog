@@ -51,6 +51,10 @@ services:
       MYSQL_HOST: mysql
       MYSQL_USER: root
       MYSQL_PASSWORD: root
+      # dbdeployer uses a self-signed test certificate.  Keep TLS required
+      # while allowing its certificate only inside this integration harness.
+      MYSQL_SSL_MODE: REQUIRED
+      MYSQL_SSL_VERIFY_SERVER_CERT: "0"
       MYSQL_VERSIONS: "${MYSQL_VERSIONS:-57 80 84 90 94}"
       # Use the host-built reader binary visible through the bind mount.
       BINLOG_READER_BIN: /opt/proxysql_mysqlbinlog/proxysql_binlog_reader
