@@ -12,8 +12,9 @@ include mariadb.mk
 
 LIB_SRCS = tap.cpp command_line.cpp binlog_reader_process.cpp \
            binlog_reader_client.cpp mysql_client.cpp \
-           ../../mariadb_replication.cpp ../../tls_options.cpp
+           ../../mariadb_replication.cpp
 LIB_OBJS = $(LIB_SRCS:.cpp=.o)
+TLS_OPTIONS_OBJ = tls_options.o
 
 # proxysql_gtid.{h,cpp} lives at the repo root and is shared with the
 # reader. We compile it here so libtap.a is self-contained.
@@ -24,13 +25,15 @@ default: lib tests
 
 lib: libtap.a
 
-libtap.a: $(MARIADB_CONNECTOR_ARCHIVE) $(LIB_OBJS) $(GTID_OBJ) \
-          ../../tls_options.cpp ../../tls_options.h
-	ar rcs $@ $(LIB_OBJS) $(GTID_OBJ)
+libtap.a: $(MARIADB_CONNECTOR_ARCHIVE) $(LIB_OBJS) $(TLS_OPTIONS_OBJ) $(GTID_OBJ)
+	ar rcs $@ $(LIB_OBJS) $(TLS_OPTIONS_OBJ) $(GTID_OBJ)
 
 $(LIB_OBJS): $(MARIADB_CONNECTOR_ARCHIVE)
 
-../../tls_options.o: ../../tls_options.cpp ../../tls_options.h
+command_line.o mysql_client.o binlog_reader_process.o: ../../tls_options.h
+
+tls_options.o: ../../tls_options.cpp ../../tls_options.h
+	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I. -I../.. -c $< -o $@
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I. -I../.. -c $< -o $@
@@ -42,5 +45,5 @@ tests: libtap.a
 	$(MAKE) -C tests
 
 clean:
-	rm -f $(LIB_OBJS) $(GTID_OBJ) libtap.a
+	rm -f $(LIB_OBJS) $(TLS_OPTIONS_OBJ) $(GTID_OBJ) libtap.a
 	$(MAKE) -C tests clean

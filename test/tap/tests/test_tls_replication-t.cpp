@@ -102,13 +102,15 @@ int main() {
 	BinlogReaderProcess rejected;
 	configure_reader(cli, cli.reader_port + 1, TLSOptions(), &rejected);
 	rejected.log_file_path = strict_reader_log.path();
-	ok(rejected.start(),
+	const bool strict_started = rejected.start();
+	ok(strict_started,
 	   "reader with REQUIRED TLS certificate verification can be spawned");
-	const bool strict_listener_opened = rejected.wait_ready(5000);
-	const bool strict_reader_reaped = !rejected.running();
+	const bool strict_listener_opened =
+		strict_started && rejected.wait_ready(5000);
+	const bool strict_reader_reaped = strict_started && !rejected.running();
 	const std::string strict_reader_output = strict_reader_log.contents();
 	diag("strict reader log: %s", strict_reader_output.c_str());
-	ok(!strict_listener_opened && strict_reader_reaped &&
+	ok(strict_started && !strict_listener_opened && strict_reader_reaped &&
 	       strict_reader_output.find("Certificate verification failure") !=
 	           std::string::npos,
 	   "self-signed MySQL certificate verification rejects the reader before its listener opens");
