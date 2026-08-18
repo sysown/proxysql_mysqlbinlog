@@ -2,7 +2,12 @@
 
 set -euo pipefail
 
-package_path=${1:?usage: test/verify-package-contents.sh <package.deb|package.rpm>}
+if [[ "$#" -ne 1 ]]; then
+    echo "usage: test/verify-package-contents.sh <package.deb|package.rpm>" >&2
+    exit 2
+fi
+
+package_path=$1
 doc_dir=/usr/share/doc/proxysql-mysqlbinlog
 
 expected_paths=(
