@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(12);
+	plan(15);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -54,6 +54,12 @@ int main() {
 	// strtoul() alone accepts leading whitespace, but the protocol field is decimal ASCII.
 	ok(!parse_mysql_snapshot_position("mysql-bin.000001", " 4", &snapshot_position),
 	   "rejects a non-ASCII-decimal binary log position");
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "+4", &snapshot_position),
+	   "rejects a signed positive binary log position");
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "-4", &snapshot_position),
+	   "rejects a signed negative binary log position");
+	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "4x", &snapshot_position),
+	   "rejects an alphabetic binary log position");
 	ok(!parse_mysql_snapshot_position("mysql-bin.000001", "3", &snapshot_position),
 	   "rejects a binary log position below the first valid offset");
 	const std::string overflowing_position =
