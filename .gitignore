@@ -2,6 +2,7 @@
 test/tap/*.o
 test/tap/libtap.a
 test/tap/tests/*-t
+mariadb_replication.o
 
 # Test logs
 test/logs/

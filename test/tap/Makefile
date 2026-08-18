@@ -8,7 +8,8 @@ CXXFLAGS ?= -std=c++11 -g -O0 -Wall -Wextra
 MYSQL_CFLAGS ?= $(shell mysql_config --cflags 2>/dev/null)
 
 LIB_SRCS = tap.cpp command_line.cpp binlog_reader_process.cpp \
-           binlog_reader_client.cpp mysql_client.cpp
+           binlog_reader_client.cpp mysql_client.cpp \
+           ../../mariadb_replication.cpp
 LIB_OBJS = $(LIB_SRCS:.cpp=.o)
 
 # proxysql_gtid.{h,cpp} lives at the repo root and is shared with the
