@@ -34,19 +34,47 @@ test/
 
 ## Prerequisites
 
-Two artifacts must be built **on the host** before running tests; the
-runner container links against them via bind mount.
+The runner container bind-mounts two prebuilt artifacts. Build them natively
+on the host or in the Docker builder before running tests.
+
+### Native host build
+
+Needs `g++`, `make`, `cmake`, and OpenSSL development headers on the host.
 
 ```sh
 make build-ubuntu24          # builds proxysql_binlog_reader at repo root
 make -C test/tap             # builds test/tap/libtap.a + tests/*-t
 ```
 
+### Docker-only builder
+
+From the repository root, build the same Ubuntu 24 toolchain image used by
+CI, then build both artifacts through that image:
+
+```sh
+docker build \
+    -t proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
+    -f docker/build/build-ubuntu24/Dockerfile \
+    .
+docker run --rm \
+    -e GIT_VERSION=2.x.y-dev \
+    -e SOURCE_DATE_EPOCH="$(date +%s)" \
+    -v "$PWD:/opt/proxysql_mysqlbinlog" \
+    -w /opt/proxysql_mysqlbinlog \
+    proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
+    bash -lc 'make cleanbuild && make -j2 && make verify-static-connector-c && make -C test/tap'
+```
+
+Set `GIT_VERSION` to the version appropriate for the build. The explicit
+version and timestamp overrides also let a bind-mounted linked worktree build
+without exposing its Git metadata outside the mount.
+
 ## Running tests
 
 ### Containerized (recommended)
 
-Needs only docker on the host.
+The test runtime needs Docker. Ensure the reader and TAP artifacts above are
+built before starting it.
 
 ```sh
 test/infra/start-test.sh
@@ -65,8 +93,6 @@ Exits with the TAP suite's exit code. Infra is left running for
 post-mortem.
 
 ### Host mode (fast iteration)
-
-Needs `g++`, `make`, `cmake`, and OpenSSL development headers on the host.
 
 ```sh
 docker compose -f test/infra/docker-compose.yml up -d mysql
