@@ -8,6 +8,8 @@ BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
+RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
+RUNNER_DOCKERFILE = "docker/build/build-ubuntu24/Dockerfile"
 
 
 def fail(message)
@@ -56,6 +58,39 @@ def line_index(lines, line, label)
   fail("expected exactly one #{line.inspect} line in #{label}") unless indexes.length == 1
 
   indexes.first
+end
+
+
+def shell_commands(command)
+  commands = []
+  current = []
+
+  command.each_line do |line|
+    stripped = line.strip.sub(/\s+#.*\z/, "")
+    next if stripped.empty? || stripped.start_with?("#")
+
+    continues = stripped.end_with?("\\")
+    current << stripped.delete_suffix("\\").strip
+    next if continues
+
+    commands << current.join(" ")
+    current = []
+  end
+
+  commands << current.join(" ") unless current.empty?
+  commands
+end
+
+
+def runner_build_command?(command)
+  shell_commands(command).include?("docker build -t \"$RUNNER_IMG\" -f #{RUNNER_DOCKERFILE} .")
+end
+
+
+def tap_run_command?(command)
+  shell_commands(command).any? do |shell_command|
+    shell_command.start_with?("docker run ") && shell_command.end_with?('"$RUNNER_IMG" make')
+  end
 end
 
 
@@ -131,6 +166,37 @@ def assert_release_container_contract(release)
 end
 
 
+def assert_release_test_images_contract(release)
+  job = release.fetch("jobs").fetch("test-images")
+  fail("release test-images RUNNER_IMG is not #{RUNNER_IMAGE.inspect}") unless job.fetch("env").fetch("RUNNER_IMG") == RUNNER_IMAGE
+  test_steps = steps(job, "release test-images")
+
+  checkout_indexes = test_steps.each_index.select do |index|
+    test_steps[index].fetch("uses", "").start_with?("actions/checkout@")
+  end
+  fail("expected exactly one release test-images checkout step") unless checkout_indexes.length == 1
+  checkout_with = test_steps[checkout_indexes.first]["with"]
+  checkout_ref = checkout_with.is_a?(Hash) ? checkout_with["ref"] : nil
+  fail("release test-images checkout must use the release tag") unless checkout_ref == "${{ github.event.release.tag_name }}"
+
+  runner_build_indexes = test_steps.each_index.select do |index|
+    runner_build_command?(test_steps[index].fetch("run", ""))
+  end
+  fail("expected exactly one RUNNER_IMG toolchain build for release test-images") unless runner_build_indexes.length == 1
+
+  tap_index = step_index(test_steps, "Build TAP test binaries")
+  tap_command = test_steps[tap_index].fetch("run", "")
+  unless tap_run_command?(tap_command)
+    fail("release TAP build does not run in RUNNER_IMG")
+  end
+  unless checkout_indexes.first < runner_build_indexes.first && runner_build_indexes.first < tap_index
+    fail("release test-images must check out source before building RUNNER_IMG before TAP compilation")
+  end
+rescue KeyError => error
+  fail("release test-images job structure is incomplete: #{error.message}")
+end
+
+
 def assert_ci_contract(ci)
   jobs = ci.fetch("jobs")
   packages_job = jobs.fetch("packages")
@@ -170,4 +236,5 @@ ci = load_workflow(ci_path)
 
 assert_release_package_contract(release)
 assert_release_container_contract(release)
+assert_release_test_images_contract(release)
 assert_ci_contract(ci)

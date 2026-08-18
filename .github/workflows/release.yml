@@ -136,6 +136,13 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name }}
 
+      - name: Build TAP toolchain image
+        run: |
+          docker build \
+            -t "$RUNNER_IMG" \
+            -f docker/build/build-ubuntu24/Dockerfile \
+            .
+
       - name: Load all built images
         uses: ./.github/actions/load-images
 
