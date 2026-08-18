@@ -162,6 +162,7 @@ jobs:
           mkdir -p "test/logs/${RUN_ID}"
 
       - name: Test MySQL 5.7
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '57'
@@ -174,6 +175,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.0
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '80'
@@ -186,6 +188,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.4
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '84'
@@ -198,6 +201,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.0
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '90'
@@ -210,6 +214,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.4
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '94'

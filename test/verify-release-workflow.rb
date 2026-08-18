@@ -10,6 +10,13 @@ CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
 RUNNER_DOCKERFILE = "docker/build/build-ubuntu24/Dockerfile"
+MYSQL_TEST_STEPS = {
+  "Test MySQL 5.7" => "57",
+  "Test MySQL 8.0" => "80",
+  "Test MySQL 8.4" => "84",
+  "Test MySQL 9.0" => "90",
+  "Test MySQL 9.4" => "94"
+}.freeze
 
 
 def fail(message)
@@ -197,6 +204,21 @@ rescue KeyError => error
 end
 
 
+def assert_mysql_test_step(step, name, version)
+  fail("#{name} must continue unless the workflow is cancelled") unless step["if"] == "${{ !cancelled() }}"
+  fail("#{name} must time out after 30 minutes") unless step["timeout-minutes"] == 30
+  fail("#{name} must not use continue-on-error") if step.key?("continue-on-error")
+
+  environment = step["env"]
+  mysql_versions = environment.is_a?(Hash) ? environment.fetch("MYSQL_VERSIONS", "").to_s : ""
+  fail("#{name} must set MYSQL_VERSIONS to only #{version}") unless mysql_versions == version
+
+  commands = shell_commands(step.fetch("run", ""))
+  fail("#{name} must start its MySQL service") unless commands.include?("docker compose up -d mysql")
+  fail("#{name} must run the TAP runner") unless commands.include?("docker compose run --rm runner")
+end
+
+
 def assert_ci_contract(ci)
   jobs = ci.fetch("jobs")
   packages_job = jobs.fetch("packages")
@@ -224,6 +246,23 @@ def assert_ci_contract(ci)
     needs = [needs] unless needs.is_a?(Array)
     fail("#{job_name} must need workflow-contract") unless needs.include?("workflow-contract")
   end
+
+  test_job = jobs.fetch("test")
+  fail("CI test job must not use continue-on-error") if test_job.key?("continue-on-error")
+
+  test_steps = steps(test_job, "CI test")
+  mysql_test_names = test_steps.filter_map do |step|
+    name = step["name"]
+    name if name.is_a?(String) && name.start_with?("Test MySQL ")
+  end
+  fail("CI test must contain exactly #{MYSQL_TEST_STEPS.keys.inspect} MySQL test steps") unless mysql_test_names == MYSQL_TEST_STEPS.keys
+
+  MYSQL_TEST_STEPS.each do |name, version|
+    assert_mysql_test_step(test_steps.fetch(step_index(test_steps, name)), name, version)
+  end
+
+  upload_logs = test_steps.fetch(step_index(test_steps, "Upload test logs"))
+  fail("Upload test logs must run even when a test fails") unless upload_logs["if"] == "always()"
 rescue KeyError => error
   fail("CI workflow structure is incomplete: #{error.message}")
 end
