@@ -21,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify release package workflow
+        run: python3 test/verify-release-workflow.py
+
       - name: Build ${{ matrix.target }} toolchain image
         run: |
           docker build \

@@ -10,6 +10,9 @@ EXPECTED_DISTROS = ["centos9", "centos10", "debian12", "debian13", "ubuntu22", "
 BUILD_TAG = "proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }}"
 BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
+CI_WORKFLOW_PATH = Path(".github/workflows/ci-test.yml")
+CI_STEP_NAME = "Verify release package workflow"
+CI_COMMAND = "python3 test/verify-release-workflow.py"
 
 
 def fail(message):
@@ -66,6 +69,24 @@ def main():
 
     if checkout_indexes[0] >= build_indexes[0]:
         fail("the local toolchain image must use the checked-out release source")
+
+    ci_workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    try:
+        ci_steps = ci_workflow["jobs"]["packages"]["steps"]
+    except (KeyError, TypeError) as error:
+        fail(f"package CI job structure is incomplete: {error}")
+
+    ci_checkout_indexes = [
+        index
+        for index, step in enumerate(ci_steps)
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    if len(ci_checkout_indexes) != 1:
+        fail("expected exactly one checkout step in the package CI job")
+
+    expected_ci_step = {"name": CI_STEP_NAME, "run": CI_COMMAND}
+    if ci_steps[ci_checkout_indexes[0] + 1] != expected_ci_step:
+        fail("release workflow validation must run immediately after package CI checkout")
 
 
 if __name__ == "__main__":
