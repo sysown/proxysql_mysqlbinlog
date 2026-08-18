@@ -214,11 +214,15 @@ def assert_mysql_test_step(step, name, version)
   fail("#{name} must set MYSQL_VERSIONS to only #{version}") unless mysql_versions == version
 
   commands = shell_commands(step.fetch("run", ""))
-  fail("#{name} must exit when a test command fails") unless commands.include?("set -e")
-  fail("#{name} must define a Docker Compose cleanup function") unless commands.include?("cleanup() { docker compose down -v 2>/dev/null; }")
-  fail("#{name} must run Docker Compose cleanup on exit") unless commands.include?("trap cleanup EXIT")
-  fail("#{name} must start its MySQL service") unless commands.include?("docker compose up -d mysql")
-  fail("#{name} must run the TAP runner") unless commands.include?("docker compose run --rm runner")
+  set_e_index = line_index(commands, "set -e", "#{name} commands")
+  cleanup_index = line_index(commands, "cleanup() { docker compose down -v 2>/dev/null; }", "#{name} commands")
+  trap_index = line_index(commands, "trap cleanup EXIT", "#{name} commands")
+  mysql_index = line_index(commands, "docker compose up -d mysql", "#{name} commands")
+  runner_index = line_index(commands, "docker compose run --rm runner", "#{name} commands")
+
+  unless set_e_index < cleanup_index && cleanup_index < trap_index && trap_index < mysql_index && mysql_index < runner_index
+    fail("#{name} must set up failure handling before starting and running MySQL")
+  end
 end
 
 
