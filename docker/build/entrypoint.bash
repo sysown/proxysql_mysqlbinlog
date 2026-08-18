@@ -69,7 +69,9 @@ fpm \
 	--workdir /tmp/ \
 	--package /opt/proxysql_mysqlbinlog/ \
 	--name proxysql-mysqlbinlog \
-	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/
+	/opt/proxysql_mysqlbinlog/proxysql_binlog_reader/=/bin/ \
+	/opt/proxysql_mysqlbinlog/THIRD_PARTY_NOTICES.md=/usr/share/doc/proxysql-mysqlbinlog/ \
+	/opt/proxysql_mysqlbinlog/mariadb-connector-c-3.4.8/COPYING.LIB=/usr/share/doc/proxysql-mysqlbinlog/
 
 
 if [[ "${PKG_KIND}" = "deb" ]]; then

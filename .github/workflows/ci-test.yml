@@ -39,6 +39,19 @@ jobs:
             proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
             bash -lc 'make verify-static-connector-c'
 
+      - name: Verify package contents
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog:ro \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc '
+              case "${{ matrix.target }}" in
+                centos*) test/verify-package-contents.sh binaries/*.rpm ;;
+                *) test/verify-package-contents.sh binaries/*.deb ;;
+              esac
+            '
+
       - name: Inspect package metadata
         run: |
           docker run --rm \

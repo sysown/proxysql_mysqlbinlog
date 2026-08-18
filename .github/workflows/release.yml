@@ -30,6 +30,13 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
+      - name: Build ${{ matrix.distro }} toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }} \
+            -f docker/build/build-${{ matrix.distro }}/Dockerfile \
+            .
+
       - name: Build ${{ matrix.distro }} package
         run: make ${{ matrix.distro }}
 
