@@ -32,6 +32,8 @@ find . -not -path "./binaries/*" -not -path "./.git/*" | xargs touch -h --date=@
 echo "==> Building"
 make -j $(ncpu)
 
+make verify-static-connector-c
+
 echo "==> Packaging"
 cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${PKG_DIST}
 
