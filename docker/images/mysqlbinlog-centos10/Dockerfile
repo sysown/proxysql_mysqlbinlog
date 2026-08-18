@@ -12,6 +12,9 @@ LABEL authors="Miro Stauder <miro@proxysql.com>"
 
 RUN yum -y update
 
+# Runtime OpenSSL libraries required by the reader.
+RUN yum -y install openssl-libs
+
 # copy package from context
 COPY proxysql-mysqlbinlog-*.rpm ./
 RUN bash -c "rpm -i proxysql-mysqlbinlog-*$(rpm --eval '%{_arch}').rpm"

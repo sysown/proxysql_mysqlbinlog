@@ -37,6 +37,19 @@ make verify-static-connector-c
 echo "==> Packaging"
 cp -f ./proxysql_binlog_reader ./binaries/proxysql_binlog_reader-${GIT_VERS#v}-${PKG_DIST}
 
+FPM_DEPENDS=()
+case "${PKG_DIST}" in
+	debian12|ubuntu22)
+		FPM_DEPENDS+=(--depends libssl3)
+		;;
+	debian13|ubuntu24)
+		FPM_DEPENDS+=(--depends libssl3t64)
+		;;
+	centos9|centos10)
+		FPM_DEPENDS+=(--depends openssl-libs)
+		;;
+esac
+
 fpm \
 	--debug \
 	-s dir \
@@ -51,6 +64,7 @@ fpm \
 	--url 'https://proxysql.com' \
 	--vendor 'ProxySQL LLC' \
 	--maintainer '<info@proxysql.com>' \
+	"${FPM_DEPENDS[@]}" \
 	--debug-workspace \
 	--workdir /tmp/ \
 	--package /opt/proxysql_mysqlbinlog/ \

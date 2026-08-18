@@ -2,6 +2,10 @@ FROM debian:13
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
 
+# Runtime OpenSSL libraries required by the reader.
+RUN apt-get -y update && \
+	apt-get -y install --no-install-recommends libssl3t64
+
 # copy package from context
 COPY proxysql-mysqlbinlog_*.deb ./
 RUN bash -c "yes | dpkg -i proxysql-mysqlbinlog_*$(dpkg --print-architecture).deb"
