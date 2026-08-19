@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "tls_options.h"
+
 class CommandLine {
    public:
 	CommandLine();
@@ -12,6 +14,8 @@ class CommandLine {
 	std::string mysql_user;
 	std::string mysql_password;
 	std::string mysql_version;
+	TLSOptions tls;
+	std::string tls_config_error;
 
 	std::string proxy_admin_host;
 	int proxy_admin_port;

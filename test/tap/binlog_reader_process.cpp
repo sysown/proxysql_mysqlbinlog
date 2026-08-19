@@ -86,6 +86,25 @@ bool BinlogReaderProcess::start() {
 	argv.push_back("-l");
 	argv.push_back(std::to_string(listen_port));
 
+	argv.push_back("--ssl-mode");
+	argv.push_back(tls_mode_name(tls.mode));
+	argv.push_back("--ssl-verify-server-cert");
+	argv.push_back(tls.verify_server_certificate ? "1" : "0");
+
+	auto append_tls_option = [&argv](const char* option,
+	                                const std::string& value) {
+		if (!value.empty()) {
+			argv.push_back(option);
+			argv.push_back(value);
+		}
+	};
+	append_tls_option("--ssl-ca", tls.ca_file);
+	append_tls_option("--ssl-capath", tls.ca_path);
+	append_tls_option("--ssl-cert", tls.certificate_file);
+	append_tls_option("--ssl-key", tls.key_file);
+	append_tls_option("--ssl-cipher", tls.cipher);
+	append_tls_option("--tls-version", tls.version);
+
 	if (freq_ms >= 0) {
 		argv.push_back("-t");
 		argv.push_back(std::to_string(freq_ms));

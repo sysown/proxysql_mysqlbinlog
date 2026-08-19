@@ -78,6 +78,14 @@ The image entrypoint runs `proxysql_binlog_reader` in the foreground, configured
 | `LISTEN_PORT` | `-l` | `6020` |
 | `UPDATE_FREQ_MS` | `-t` | `0` |
 | `BATCHING` | `-b` | `1` |
+| `SSL_MODE` | `--ssl-mode` | `REQUIRED` |
+| `SSL_VERIFY_SERVER_CERT` | `--ssl-verify-server-cert` | `1` |
+| `SSL_CA` | `--ssl-ca` | unset |
+| `SSL_CAPATH` | `--ssl-capath` | unset |
+| `SSL_CERT` | `--ssl-cert` | unset |
+| `SSL_KEY` | `--ssl-key` | unset |
+| `SSL_CIPHER` | `--ssl-cipher` | unset |
+| `TLS_VERSION` | `--tls-version` | unset |
 
 e.g.:
 ```
@@ -90,8 +98,28 @@ docker run -d --name binlog-reader -p 6020:6020 \
 
 on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 
-```
+```sh
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
+```
+
+#### TLS connections
+
+TLS is required and server-certificate verification is enabled by default. For a
+verified connection, provide the CA that issued the MySQL server certificate:
+
+```sh
+./proxysql_binlog_reader -h mysql1 -u reader -p secret -P 3306 -l 6020 -f \
+  --ssl-mode=REQUIRED --ssl-verify-server-cert=1 \
+  --ssl-ca=/etc/proxysql-mysqlbinlog/mysql-ca.pem
+```
+
+For a self-signed development or private test server, encryption can remain
+required while certificate and host trust checks are disabled. This is an
+insecure, test/private-only decision:
+
+```sh
+./proxysql_binlog_reader -h mysql1 -u reader -p secret -P 3306 -l 6020 -f \
+  --ssl-mode=REQUIRED --ssl-verify-server-cert=0
 ```
 
 #### Arguments
@@ -107,6 +135,25 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 + `-b`: update batching, 0 or 1 (default 1); set to 0 for ProxySQL servers older than v3.0.8
 + `-B`: optional maximum network buffer size, in bytes
 + `-v`: output build version
++ `--ssl-mode`: `DISABLED`, `PREFERRED`, or `REQUIRED` (default `REQUIRED`)
++ `--ssl-verify-server-cert`: verify the server certificate, `0` or `1` (default `1`)
++ `--ssl-ca`, `--ssl-capath`: optional CA file or directory
++ `--ssl-cert`, `--ssl-key`: optional client certificate and private key
++ `--ssl-cipher`, `--tls-version`: optional TLS cipher list and protocol version
+
+Container images expose the same TLS settings through `SSL_MODE` and
+`SSL_VERIFY_SERVER_CERT` (defaults `REQUIRED` and `1`), with optional
+`SSL_CA`, `SSL_CAPATH`, `SSL_CERT`, `SSL_KEY`, `SSL_CIPHER`, and `TLS_VERSION`.
+
+#### Integration testing
+
+The Docker TAP suite uses dbdeployer sandboxes for MySQL `5.7`, `8.0`, `8.4`,
+`9.0`, and `9.4`. After building the reader and TAP tests, run one version
+during local iteration with:
+
+```sh
+MYSQL_VERSIONS=84 test/infra/start-test.sh
+```
 
 
 #### Configuration

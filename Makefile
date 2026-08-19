@@ -27,17 +27,21 @@ SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD || date +%s)
 export SOURCE_DATE_EPOCH
 
 
-# include paths
-IDIRS :=	-I./libslave \
-			-I./libev \
-			-I./libdaemon
+# MariaDB Connector/C provides the client and replication APIs.
+MARIADB_CONNECTOR_C_VERSION := 3.4.8
+MARIADB_CONNECTOR_C_DIR := mariadb-connector-c-$(MARIADB_CONNECTOR_C_VERSION)
+MARIADB_CONNECTOR_C_ARCHIVE := $(MARIADB_CONNECTOR_C_DIR).tar.gz
+MARIADB_CONNECTOR_C_LIBRARY := $(MARIADB_CONNECTOR_C_DIR)/build/libmariadb/libmariadbclient.a
+MARIADB_CFLAGS := -I./$(MARIADB_CONNECTOR_C_DIR)/include -I./$(MARIADB_CONNECTOR_C_DIR)/build/include
+MARIADB_LIBS := $(MARIADB_CONNECTOR_C_LIBRARY) -ldl -lm -lssl -lcrypto
 
-# link paths
-LDIRS :=	-L/usr/lib64/mysql
+# include paths
+IDIRS :=	-I./libev \
+			-I./libdaemon \
+			$(MARIADB_CFLAGS)
 
 # link archives
-DEPS :=		./libslave/libslave.a \
-			./libev/.libs/libev.a \
+DEPS :=		./libev/.libs/libev.a \
 			./libdaemon/libdaemon/.libs/libdaemon.a
 
 
@@ -46,11 +50,24 @@ DEPS :=		./libslave/libslave.a \
 .PHONY: default
 default: proxysql_binlog_reader
 
-SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp
+SRCS=proxysql_binlog_reader.cpp proxysql_gtid.cpp mariadb_replication.cpp mariadb_replication_client.cpp tls_options.cpp
 
-proxysql_binlog_reader: libev libdaemon libslave
-	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) $(LDIRS) -rdynamic -lz -ldl -lssl -lcrypto -lpthread -lboost_system -lrt -Wl,-Bstatic -lmysqlclient -Wl,-Bdynamic -ldl -lssl -lcrypto -pthread
-# -lperconaserverclient if compiled with percona server
+proxysql_binlog_reader: $(SRCS) libev libdaemon mariadb-connector
+	@$(CXX) -o proxysql_binlog_reader $(SRCS) -std=c++11 -DGITVERSION=\"$(GIT_VERSION)\" -ggdb $(DEPS) $(IDIRS) -rdynamic $(MARIADB_LIBS) -lpthread
+
+$(MARIADB_CONNECTOR_C_LIBRARY): $(MARIADB_CONNECTOR_C_ARCHIVE) $(MARIADB_CONNECTOR_C_ARCHIVE).sha256
+	sha256sum -c $(MARIADB_CONNECTOR_C_ARCHIVE).sha256
+	rm -rf $(MARIADB_CONNECTOR_C_DIR)
+	tar -zxf $(MARIADB_CONNECTOR_C_ARCHIVE)
+	cmake -S $(MARIADB_CONNECTOR_C_DIR) -B $(MARIADB_CONNECTOR_C_DIR)/build -DCMAKE_BUILD_TYPE=Release -DWITH_UNIT_TESTS=OFF -DWITH_CURL=OFF -DCLIENT_PLUGIN_CACHING_SHA2_PASSWORD=STATIC
+	$(MAKE) -C $(MARIADB_CONNECTOR_C_DIR)/build mariadbclient
+
+.PHONY: mariadb-connector
+mariadb-connector: $(MARIADB_CONNECTOR_C_LIBRARY)
+
+.PHONY: verify-static-connector-c
+verify-static-connector-c: proxysql_binlog_reader
+	test/verify-static-connector-c.sh ./proxysql_binlog_reader
 
 libev/.libs/libev.a:
 	rm -rf libev-*/ || true
@@ -145,6 +162,7 @@ cleanbuild:
 	rm -rf libev-*/
 	rm -rf libslave-*/
 	rm -rf libdaemon-*/
+	rm -rf $(MARIADB_CONNECTOR_C_DIR)
 	find . -name '*.a' -delete
 	find . -name '*.o' -delete
 

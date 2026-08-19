@@ -30,8 +30,45 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
+      - name: Build ${{ matrix.distro }} toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }} \
+            -f docker/build/build-${{ matrix.distro }}/Dockerfile \
+            .
+
       - name: Build ${{ matrix.distro }} package
         run: make ${{ matrix.distro }}
+
+      - name: Verify package contents
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          case "${{ matrix.distro }}" in
+            centos*) packages=(binaries/*.rpm) ;;
+            *) packages=(binaries/*.deb) ;;
+          esac
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "expected exactly one package for ${{ matrix.distro }}, found ${#packages[@]}" >&2
+            printf '%s\n' "${packages[@]}" >&2
+            exit 1
+          fi
+          test/verify-package-contents.sh "${packages[0]}"
+
+      - name: Inspect package metadata
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          case "${{ matrix.distro }}" in
+            centos*) packages=(binaries/*.rpm) ;;
+            *) packages=(binaries/*.deb) ;;
+          esac
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "expected exactly one package for ${{ matrix.distro }}, found ${#packages[@]}" >&2
+            printf "%s\n" "${packages[@]}" >&2
+            exit 1
+          fi
+          test/verify-package-dependencies.sh "${packages[0]}"
 
       - name: List built artifacts
         run: ls -l binaries/
@@ -113,6 +150,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
+
+      - name: Build TAP toolchain image
+        run: |
+          docker build \
+            -t "$RUNNER_IMG" \
+            -f docker/build/build-ubuntu24/Dockerfile \
+            .
 
       - name: Load all built images
         uses: ./.github/actions/load-images

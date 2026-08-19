@@ -2,6 +2,7 @@
 test/tap/*.o
 test/tap/libtap.a
 test/tap/tests/*-t
+mariadb_replication.o
 
 # Test logs
 test/logs/
@@ -10,6 +11,7 @@ test/logs/
 libev-4.24
 libdaemon-0.14
 libslave-20171226
+mariadb-connector-c-3.4.8/
 
 # Built reader binary
 proxysql_binlog_reader

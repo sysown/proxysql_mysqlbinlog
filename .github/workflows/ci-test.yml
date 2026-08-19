@@ -7,10 +7,98 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  workflow-contract:
+    name: workflow contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify release workflow contract
+        run: ruby test/verify-release-workflow.rb
+
+  packages:
+    name: package (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    needs: workflow-contract
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build ${{ matrix.target }} toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            -f docker/build/build-${{ matrix.target }}/Dockerfile \
+            .
+
+      - name: Build ${{ matrix.target }} package
+        run: make build-${{ matrix.target }}
+
+      - name: Verify static Connector/C linkage
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc 'make verify-static-connector-c'
+
+      - name: Verify package contents
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog:ro \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc '
+              set -euo pipefail
+              shopt -s nullglob
+              case "${{ matrix.target }}" in
+                centos*) packages=(binaries/*.rpm) ;;
+                *) packages=(binaries/*.deb) ;;
+              esac
+              if [[ ${#packages[@]} -ne 1 ]]; then
+                echo "expected exactly one package for ${{ matrix.target }}, found ${#packages[@]}" >&2
+                printf "%s\\n" "${packages[@]}" >&2
+                exit 1
+              fi
+              test/verify-package-contents.sh "${packages[0]}"
+            '
+
+      - name: Inspect package metadata
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog:ro \
+            -w /opt/proxysql_mysqlbinlog \
+            proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
+            bash -lc '
+              set -euo pipefail
+              shopt -s nullglob
+              case "${{ matrix.target }}" in
+                centos*) packages=(binaries/*.rpm) ;;
+                *) packages=(binaries/*.deb) ;;
+              esac
+              if [[ ${#packages[@]} -ne 1 ]]; then
+                echo "expected exactly one package for ${{ matrix.target }}, found ${#packages[@]}" >&2
+                printf "%s\\n" "${packages[@]}" >&2
+                exit 1
+              fi
+              test/verify-package-dependencies.sh "${packages[0]}"
+            '
+
   test:
     name: test
     runs-on: ubuntu-latest
+    needs: workflow-contract
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -21,16 +109,22 @@ jobs:
       # Builds
       # ------------------------------------------------------------------
 
-      - name: Build reader binary (make build-ubuntu24)
-        run: make build-ubuntu24
+      # Build the toolchain from this checkout so the reader and TAP
+      # binaries use the same Connector/C version as the runtime image.
+      - name: Build Ubuntu 24 toolchain image
+        run: |
+          docker build \
+            -t proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
+            -f docker/build/build-ubuntu24/Dockerfile \
+            .
 
-      - name: Build test framework (make -C test/tap)
+      - name: Build and inspect vendored reader
         run: |
           docker run --rm \
             -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
-            -w /opt/proxysql_mysqlbinlog/test/tap \
+            -w /opt/proxysql_mysqlbinlog \
             proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
-            make
+            bash -lc 'make cleanbuild && make -j2 && make verify-static-connector-c && test/verify-shutdown-handshake.sh && make -C test/tap'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,8 +151,8 @@ jobs:
 
       # ------------------------------------------------------------------
       # Tests — one step per MySQL version so failures are visible in the
-      # workflow run UI.  continue-on-error keeps later versions running
-      # when an earlier one fails.
+      # workflow run UI.  Each result is a required signal for this branch;
+      # do not mask later failures with continue-on-error.
       #
       # All steps share a single RUN_ID, producing one log tree:
       #   test/logs/ci-<ts>/
@@ -73,7 +167,7 @@ jobs:
           mkdir -p "test/logs/${RUN_ID}"
 
       - name: Test MySQL 5.7
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '57'
@@ -86,7 +180,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.0
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '80'
@@ -99,7 +193,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 8.4
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '84'
@@ -112,7 +206,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.0
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '90'
@@ -125,7 +219,7 @@ jobs:
           docker compose run --rm runner
 
       - name: Test MySQL 9.4
-        continue-on-error: true
+        if: ${{ !cancelled() }}
         timeout-minutes: 30
         env:
           MYSQL_VERSIONS: '94'

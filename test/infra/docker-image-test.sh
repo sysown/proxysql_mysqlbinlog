@@ -60,6 +60,7 @@ run_test() { # $1=reader_ip  $2=test  $3=label
        -v "$REPO":/opt/proxysql_mysqlbinlog -w /opt/proxysql_mysqlbinlog \
        -e MYSQL_HOST=mysql -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_USER=root \
        -e MYSQL_PASSWORD=root -e MYSQL_VERSION="$MYSQL_VERSION" \
+       -e MYSQL_SSL_MODE=REQUIRED -e MYSQL_SSL_VERIFY_SERVER_CERT=0 \
        -e BINLOG_READER_BIN= -e BINLOG_READER_HOST="$reader_ip" -e BINLOG_READER_PORT=6020 \
        "$RUNNER_IMG" ./test/tap/tests/"$test"; then
     echo "RESULT $label/$test: PASS"
@@ -76,7 +77,8 @@ start_reader() { # $1=image  $2=batching  $3=freq_ms
   docker rm -f reader >/dev/null 2>&1 || true
   docker run -d --name reader --network "$NET" \
     -e MYSQL_HOST=mysql -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_USER=root \
-    -e MYSQL_PASSWORD=root -e BATCHING="$batching" -e UPDATE_FREQ_MS="$freq_ms" -e LISTEN_PORT=6020 \
+    -e MYSQL_PASSWORD=root -e SSL_MODE=REQUIRED -e SSL_VERIFY_SERVER_CERT=0 \
+    -e BATCHING="$batching" -e UPDATE_FREQ_MS="$freq_ms" -e LISTEN_PORT=6020 \
     "$image" >/dev/null
   # give the reader time to connect and open its listen port
   sleep 4
@@ -118,9 +120,9 @@ for distro in $DISTROS; do
   img="${IMAGE_PREFIX}:${distro}"
   fresh_infra
 
-  # Warm the caching_sha2 cache for root@'%' with a TLS client first: the
-  # reader connects with SSL disabled, so it can only pass the warm fast-auth
-  # path, never the cold handshake.
+  # Warm the caching_sha2 cache for root@'%' with a TLS client first. This
+  # exercises the cached authentication path; the reader itself connects with
+  # TLS REQUIRED and test-only server certificate verification disabled.
   docker run --rm --network "$NET" -e MYSQL_PORT="$MYSQL_PORT" \
     --entrypoint bash "$INFRA_IMG" \
     -c 'cli=$(ls /root/opt/mysql/8.4*/bin/mysql); "$cli" -h mysql -P "$MYSQL_PORT" -uroot -proot -e "SELECT 1"'

@@ -1,8 +1,12 @@
 #include <sstream>
 #include <signal.h>
 
+#include <atomic>
+
 #include <assert.h>
+#include <cerrno>
 #include <ev.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -23,8 +27,7 @@
 #include <libdaemon/dpid.h>
 #include <libdaemon/dexec.h>
 
-#include "Slave.h"
-#include "DefaultExtState.h"
+#include "mariadb_replication_client.h"
 #include "proxysql_gtid.h"
 
 #define BINLOG_VERSION GITVERSION
@@ -70,6 +73,7 @@ void proxy_log_func(const char *fmt, ...) {
 #define UUID_SIZE_BYTES                      64
 
 struct ev_async async;
+struct ev_async shutdown_async;
 std::vector<struct ev_io *> Clients;
 
 pid_t pid;
@@ -81,9 +85,11 @@ std::vector<uint64_t> trx_ids;
 
 static struct ev_loop *loop;
 
-volatile sig_atomic_t stopflag = 0;
-slave::Slave* sl = NULL;
-slave::Position curpos;
+std::atomic<bool> stopflag(false);
+std::atomic<bool> server_loop_ready(false);
+std::atomic<bool> client_update_ready(false);
+MariaDBReplicationClient* replication_client = NULL;
+GTID_Set curpos;
 
 int pipefd[2];
 
@@ -97,6 +103,24 @@ unsigned int listen_port = DEFAULT_LISTEN_PORT;
 size_t max_netbuflen = 0;
 uint64_t update_freq_ms = 0;
 bool update_batching = true;
+
+static void test_delay_after_snapshot() {
+	const char* const value =
+		getenv("PROXYSQL_BINLOG_READER_TEST_AFTER_SNAPSHOT_DELAY_MS");
+	if (!value || !*value)
+		return;
+
+	errno = 0;
+	char* end = NULL;
+	const unsigned long delay_ms = strtoul(value, &end, 10);
+	if (errno == ERANGE || !end || *end != '\0' || delay_ms > 60000) {
+		proxy_error("Ignoring invalid post-snapshot test delay: '%s'", value);
+		return;
+	}
+
+	proxy_info("Applying post-snapshot test delay of %lu ms", delay_ms);
+	usleep(static_cast<useconds_t>(delay_ms * 1000));
+}
 
 static const char * proxysql_binlog_pid_file() {
 	static char fn[512];
@@ -261,37 +285,8 @@ void daemonize_phase1(char *argv0) {
 	}
 }
 
-std::string position_to_string(slave::Position &curpos) {
-	GTID_Set gtid_set;
-
-	if (!update_batching) {
-		// Generatate a message with individual updates per GTID.
-		std::string out;
-
-		for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-			auto uuid = it->first;
-			for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-				gtid_set.clear();
-				gtid_set.add(uuid, itr->first, itr->second);
-
-				if (!out.empty()) {
-					out += ",";
-				}
-				out += gtid_set.to_string();
-			}
-		}
-
-		return out;
-	}
-
-	// GTID string for ranged updates.
-	for (auto it=curpos.gtid_executed.begin(); it!=curpos.gtid_executed.end(); ++it) {
-		auto uuid = it->first;
-		for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
-			gtid_set.add(uuid, itr->first, itr->second);
-		}
-	}
-	return gtid_set.to_string();
+std::string position_to_string(GTID_Set& position) {
+	return position.to_string();
 }
 
 class Client_Data {
@@ -578,16 +573,30 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	return;
 }
 
+void shutdown_async_cb(struct ev_loop *event_loop, struct ev_async *watcher,
+	                   int revents) {
+	ev_break(event_loop, EVBREAK_ALL);
+}
+
+void request_server_shutdown() {
+	stopflag.store(true, std::memory_order_seq_cst);
+	if (server_loop_ready.load(std::memory_order_seq_cst))
+		ev_async_send(loop, &shutdown_async);
+}
+
 void timer_cb(struct ev_loop *loop, struct ev_timer *t, int revents) {
 	write_clients();
 	return;
 }
 
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
-	stopflag = 1;
-	sl->close_connection();
+	stopflag.store(true, std::memory_order_relaxed);
+	if (replication_client)
+		replication_client->interrupt();
 	//std::cout << " Received signal. Stopping at:" << std::endl;
+	pthread_mutex_lock(&pos_mutex);
 	std::string s1 = position_to_string(curpos);
+	pthread_mutex_unlock(&pos_mutex);
 	//std::cout << s1 << std::endl;
 	proxy_info("Received signal. Stopping at: %s", s1.c_str());
 	ev_break(loop, EVBREAK_ALL);
@@ -624,13 +633,15 @@ class GTID_Server_Dumper {
 		//struct ev_loop *my_loop = NULL;
 		my_loop = NULL;
 		my_loop = ev_loop_new (EVBACKEND_POLL | EVFLAG_NOENV);
-		loop = my_loop;
 		if (my_loop == NULL) {
 			fprintf(stderr,"could not initialise new loop");
 			exit(EXIT_FAILURE);
 		}
+		loop = my_loop;
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
+		ev_async_init(&shutdown_async, shutdown_async_cb);
+		ev_async_start(my_loop, &shutdown_async);
 		if (update_freq_ms) {
 			proxy_info("Pushing %s updates every %lums", update_batching ? "batched" : "non-batched", update_freq_ms);
 			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
@@ -638,6 +649,7 @@ class GTID_Server_Dumper {
 		} else {
 			ev_async_init(&async, async_cb);
 			ev_async_start(my_loop, &async);
+			client_update_ready.store(true, std::memory_order_release);
 		}
 		ev_signal signal_watcher1;
 		ev_signal signal_watcher2;
@@ -645,37 +657,41 @@ class GTID_Server_Dumper {
 		ev_signal_init (&signal_watcher2, sigint_cb, SIGTERM);
 		ev_signal_start (loop, &signal_watcher1);
 		ev_signal_start (loop, &signal_watcher2);
+		server_loop_ready.store(true, std::memory_order_seq_cst);
+		if (stopflag.load(std::memory_order_seq_cst))
+			ev_async_send(my_loop, &shutdown_async);
 		ev_run(my_loop, 0);
+		client_update_ready.store(false, std::memory_order_release);
+		server_loop_ready.store(false, std::memory_order_release);
 	}
 	~GTID_Server_Dumper() {
 		close(sd);
 	}
 };
 
-void bench_xid_callback(unsigned int server_id) {
+void bench_gtid_callback(const std::string& uuid, uint64_t trx_id) {
 	pthread_mutex_lock(&pos_mutex);
 
-	const char *uuid=sl->gtid_next.first.c_str();
-	uint64_t trx_id = sl->gtid_next.second;
-	if (last_trx_id == trx_id && !strcmp(last_server_uuid, uuid)) {
+	if (last_trx_id == trx_id && uuid == last_server_uuid) {
 		// do nothing
 		pthread_mutex_unlock(&pos_mutex);
 		return;
 	}
 
-	strcpy(last_server_uuid, uuid);
+	strncpy(last_server_uuid, uuid.c_str(), sizeof(last_server_uuid) - 1);
+	last_server_uuid[sizeof(last_server_uuid) - 1] = 0;
 	last_trx_id = trx_id;
-	server_uuids.push_back(strdup(uuid));
+	server_uuids.push_back(strdup(uuid.c_str()));
 	trx_ids.push_back(trx_id);
-	curpos.addGtid(sl->gtid_next);
+	curpos.add(uuid, trx_id);
 	pthread_mutex_unlock(&pos_mutex);
-	if (!update_freq_ms) {
+	if (!update_freq_ms && client_update_ready.load(std::memory_order_acquire)) {
 		ev_async_send(loop, &async);
 	}
 }
 
 bool isStopping() {
-	return stopflag;
+	return stopflag.load(std::memory_order_relaxed);
 }
 
 void usage(const char* name) {
@@ -697,11 +713,19 @@ void usage(const char* name) {
 	"-b: Batched updates, 0 or 1 (default 1). Requires ProxySQL v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << " or later; set to 0 for older versions.\n"
 	"-f: Run in foreground.\n"
 	"-v: Outputs build version.\n"
+	"--ssl-mode: TLS mode: DISABLED, PREFERRED, or REQUIRED (default REQUIRED).\n"
+	"--ssl-verify-server-cert: Verify the server certificate, 0 or 1 (default 1).\n"
+	"--ssl-ca: CA certificate file.\n"
+	"--ssl-capath: CA certificate directory.\n"
+	"--ssl-cert: Client certificate file.\n"
+	"--ssl-key: Client private-key file.\n"
+	"--ssl-cipher: TLS cipher list.\n"
+	"--tls-version: TLS protocol version.\n"
 	<< std::endl;
 }
 
 void * server(void *args) {
-	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_port);
+	GTID_Server_Dumper serv_dump(listen_port);
 	return NULL;
 }
 
@@ -711,11 +735,36 @@ int main(int argc, char** argv) {
 	std::string password;
 	std::string errorstr;
 	unsigned int port = DEFAULT_MYSQL_PORT;
+	TLSOptions tls_options;
+
+	enum {
+		OPTION_SSL_MODE = 1000,
+		OPTION_SSL_VERIFY_SERVER_CERT,
+		OPTION_SSL_CA,
+		OPTION_SSL_CAPATH,
+		OPTION_SSL_CERT,
+		OPTION_SSL_KEY,
+		OPTION_SSL_CIPHER,
+		OPTION_TLS_VERSION,
+	};
+	static const struct option long_options[] = {
+		{"ssl-mode", required_argument, nullptr, OPTION_SSL_MODE},
+		{"ssl-verify-server-cert", required_argument, nullptr,
+		 OPTION_SSL_VERIFY_SERVER_CERT},
+		{"ssl-ca", required_argument, nullptr, OPTION_SSL_CA},
+		{"ssl-capath", required_argument, nullptr, OPTION_SSL_CAPATH},
+		{"ssl-cert", required_argument, nullptr, OPTION_SSL_CERT},
+		{"ssl-key", required_argument, nullptr, OPTION_SSL_KEY},
+		{"ssl-cipher", required_argument, nullptr, OPTION_SSL_CIPHER},
+		{"tls-version", required_argument, nullptr, OPTION_TLS_VERSION},
+		{nullptr, 0, nullptr, 0},
+	};
 
 	bool error = false;
 
 	int c;
-	while (-1 != (c = ::getopt(argc, argv, "vfB:b:t:h:u:p:P:l:L:"))) {
+	while (-1 != (c = ::getopt_long(argc, argv, "vfB:b:t:h:u:p:P:l:L:",
+	                                 long_options, nullptr))) {
 		switch (c) {
 			case 'B': max_netbuflen = size_t(std::stoi(optarg)); break;
 			case 'f': foreground=true; break;
@@ -733,10 +782,38 @@ int main(int argc, char** argv) {
 			case 'v':
 				std::cout << "proxysql_binlog_reader version " << BINLOG_VERSION << std::endl;
 				return 1;
+			case OPTION_SSL_MODE:
+				if (!parse_tls_mode(optarg, &tls_options.mode)) {
+					std::cerr << "invalid SSL mode" << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
+			case OPTION_SSL_VERIFY_SERVER_CERT:
+				if (!parse_tls_boolean(optarg,
+				                       &tls_options.verify_server_certificate)) {
+					std::cerr << "invalid SSL verification value" << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
+			case OPTION_SSL_CA: tls_options.ca_file = optarg; break;
+			case OPTION_SSL_CAPATH: tls_options.ca_path = optarg; break;
+			case OPTION_SSL_CERT: tls_options.certificate_file = optarg; break;
+			case OPTION_SSL_KEY: tls_options.key_file = optarg; break;
+			case OPTION_SSL_CIPHER: tls_options.cipher = optarg; break;
+			case OPTION_TLS_VERSION: tls_options.version = optarg; break;
 			default:
 				usage(argv[0]);
 				return 1;
 		}
+	}
+
+	std::string tls_error;
+	if (!tls_options_valid(tls_options, &tls_error)) {
+		std::cerr << tls_error << std::endl;
+		usage(argv[0]);
+		return 1;
 	}
 
 	if (errorstr.empty()) {
@@ -830,29 +907,24 @@ __start_label:
 {
 	pthread_mutex_init(&pos_mutex, NULL);
 
-	slave::MasterInfo masterinfo;
-
-	masterinfo.conn_options.mysql_host = host;
-	masterinfo.conn_options.mysql_port = port;
-	masterinfo.conn_options.mysql_user = user;
-	masterinfo.conn_options.mysql_pass = password;
+	MariaDBConnectionOptions connection_options;
+	connection_options.host = host;
+	connection_options.port = port;
+	connection_options.user = user;
+	connection_options.password = password;
+	connection_options.tls = tls_options;
 
 	try {
 		proxy_info("proxysql_binlog_reader version %s", BINLOG_VERSION);
 
-		slave::DefaultExtState sDefExtState;
-		slave::Slave slave(masterinfo, sDefExtState);
-		sl = &slave;
-
-		slave.setXidCallback(bench_xid_callback);
+		MariaDBReplicationClient client(connection_options);
+		replication_client = &client;
 
 		//std::cout << "Initializing client..." << std::endl;
 		proxy_info("Initializing client...");
-		slave.init();
-		// enable GTID
-		slave.enableGtid();
+		client.connect();
 
-		curpos = slave.getLastBinlogPos();
+		curpos = client.snapshot();
 		std::string s1 = position_to_string(curpos);
 
 		// Wait until a valid 'GTID' has been executed for requesting binlog
@@ -860,36 +932,36 @@ __start_label:
 			proxy_info("'Executed_Gtid_Set' found empty, retrying...");
 			usleep(1000 * 1000);
 
-			curpos = slave.getLastBinlogPos();
+			curpos = client.snapshot();
 			s1 = position_to_string(curpos);
 		}
 		proxy_info("Last executed GTID: '%s'", s1.c_str());
 
-		sDefExtState.setMasterPosition(curpos);
-
-	pthread_t thread_id;
-	pthread_create(&thread_id, NULL, server , NULL);
-
-		try {
-
-			proxy_info("Reading binlogs...");
-			slave.get_remote_binlog([&] ()
-				{
-					const slave::MasterInfo& sMasterInfo = slave.masterInfo();
-					return (isStopping());
-				});
-
-
-		} catch (std::exception& ex) {
-			std::cout << "Error in reading binlogs: " << ex.what() << std::endl;
+		pthread_t thread_id;
+		const int thread_error = pthread_create(&thread_id, NULL, server, NULL);
+		if (thread_error != 0) {
+			proxy_error("Cannot start GTID server thread: %s", strerror(thread_error));
 			error = true;
-		}
+		} else {
+			test_delay_after_snapshot();
 
-		pthread_join(thread_id, NULL);
+			try {
+				proxy_info("Reading binlogs...");
+				client.open_stream();
+				client.stream_events(bench_gtid_callback, isStopping);
+			} catch (std::exception& ex) {
+				std::cout << "Error in reading binlogs: " << ex.what() << std::endl;
+				error = true;
+				request_server_shutdown();
+			}
+
+			pthread_join(thread_id, NULL);
+		}
 	} catch (std::exception& ex) {
-		std::cout << "Error in initializing slave: " << ex.what() << std::endl;
+		std::cout << "Error in initializing replication client: " << ex.what() << std::endl;
 		error = true;
 	}
+	replication_client = NULL;
 }
 
 finish:
@@ -897,5 +969,5 @@ finish:
 	daemon_retval_send(255);
 	daemon_signal_done();
 	daemon_pid_file_remove();
-	return 0;
+	return error ? EXIT_FAILURE : EXIT_SUCCESS;
 }

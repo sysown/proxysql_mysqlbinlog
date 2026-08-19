@@ -34,6 +34,7 @@ inline std::string setup_reader(const CommandLine &cli, BinlogReaderProcess &rea
 		reader.mysql_port = cli.mysql_port;
 		reader.mysql_user = cli.mysql_user;
 		reader.mysql_password = cli.mysql_password;
+		reader.tls = cli.tls;
 		reader.listen_port = cli.reader_port;
 		if (cli.batching >= 0) reader.batching = cli.batching;
 		if (cli.freq_ms >= 0) reader.freq_ms = cli.freq_ms;
