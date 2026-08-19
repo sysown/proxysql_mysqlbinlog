@@ -1,20 +1,25 @@
 /* test_batched_updates-t
  *
  * With the reader in batched mode (-b 1 -t N), multiple INSERTs that
- * land inside one timer window must be reported as a single I3 (or I4)
- * line whose interval covers the whole batch.
+ * are reported through I3/I4 batched updates. The timer phase is
+ * independent of the test's INSERT loop, so one group may be emitted as
+ * several contiguous I3/I4 lines; together, those lines must cover the
+ * complete group.
  *
  *   1. Reset GTID state so trxids are predictable.
  *   2. Start reader with batching=1 and freq_ms=300.
  *   3. Read ST=, capture baseline.
- *   4. Fire 5 INSERTs back-to-back.
- *   5. Read next line — must be I3=<uuid>:<baseline+1>-<baseline+5>.
- *   6. Fire 5 more INSERTs.
- *   7. Read next line — must be I4=<baseline+6>-<baseline+10>
- *      (same uuid implied).
+ *   4. Fire four INSERTs, cross a timer boundary, then fire the fifth.
+ *   5. Read updates through baseline+5 — first must be I3 and the range
+ *      must be contiguous and complete.
+ *   6. Repeat for five more INSERTs.
+ *   7. Read updates through baseline+10 — all must be I4 (same uuid
+ *      implied) and the range must be contiguous and complete.
  */
 
 #include <string>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 #include "binlog_reader_client.h"
@@ -31,6 +36,76 @@ static trxid_t max_interval_end(const std::vector<TrxId_Interval>& ivs) {
 		if (iv.end > mx) mx = iv.end;
 	}
 	return mx;
+}
+
+struct BatchedRange {
+	bool complete = false;
+	bool aggregated = false;
+	std::string error;
+	std::vector<std::string> raw_lines;
+};
+
+static BatchedRange read_batched_range(BinlogReaderClient& client,
+	                                   const std::string& expected_uuid,
+	                                   trxid_t first_trxid,
+	                                   trxid_t last_trxid,
+	                                   bool first_line_is_i3) {
+	BatchedRange result;
+	trxid_t next_trxid = first_trxid;
+	bool first_line = true;
+
+	while (next_trxid <= last_trxid) {
+		BinlogReaderMsg msg = client.read_line(2000);
+		result.raw_lines.push_back(msg.raw);
+		if (!msg.valid()) {
+			result.error = "reader error: " + msg.error;
+			return result;
+		}
+
+		const std::string expected_kind =
+			(first_line && first_line_is_i3) ? "I3" : "I4";
+		if (msg.kind != expected_kind) {
+			result.error = "expected " + expected_kind + ", got " + msg.kind;
+			return result;
+		}
+		if ((msg.kind == "I3" && msg.uuid != expected_uuid) ||
+		    msg.intervals.size() != 1) {
+			result.error = "unexpected UUID or interval count";
+			return result;
+		}
+
+		const TrxId_Interval& interval = msg.intervals[0];
+		if (interval.start != next_trxid || interval.end > last_trxid) {
+			result.error = "non-contiguous or out-of-range interval";
+			return result;
+		}
+		result.aggregated = result.aggregated || interval.end > interval.start;
+		next_trxid = interval.end + 1;
+		first_line = false;
+	}
+
+	result.complete = true;
+	return result;
+}
+
+static std::string join_lines(const std::vector<std::string>& lines) {
+	std::string joined;
+	for (size_t i = 0; i < lines.size(); ++i) {
+		if (i != 0) joined += ", ";
+		joined += lines[i];
+	}
+	return joined;
+}
+
+static void cross_timer_boundary(int frequency_ms) {
+	std::this_thread::sleep_for(
+		std::chrono::milliseconds(frequency_ms + 100));
+}
+
+static bool aggregation_is_required(
+	const std::chrono::steady_clock::duration& burst_duration,
+	int frequency_ms) {
+	return burst_duration < std::chrono::milliseconds(frequency_ms);
 }
 
 int main() {
@@ -76,42 +151,56 @@ int main() {
 	const std::string expected_uuid = strip_dashes(st.uuid);
 	const trxid_t base = max_interval_end(st.intervals);
 
-	// Fire 5 INSERTs within the 300 ms window.
-	for (int i = 1; i <= 5; ++i) {
+	// Deliberately split the five updates across timer windows. When the
+	// first four complete within one timer period, at least one emitted
+	// interval must aggregate them. Regardless of runner speed, I3/I4
+	// lines must cover every transaction without a gap.
+	const auto b1_burst_start = std::chrono::steady_clock::now();
+	for (int i = 1; i <= 4; ++i) {
 		if (!db.exec("INSERT INTO binlog_reader_test.batching_t (v) VALUES (" +
 		             std::to_string(i) + ")")) {
 			BAIL_OUT("INSERT failed: %s", db.last_error().c_str());
 		}
 	}
+	const bool b1_requires_aggregation = aggregation_is_required(
+		std::chrono::steady_clock::now() - b1_burst_start, cli.freq_ms);
+	cross_timer_boundary(cli.freq_ms);
+	if (!db.exec("INSERT INTO binlog_reader_test.batching_t (v) VALUES (5)")) {
+		BAIL_OUT("INSERT failed: %s", db.last_error().c_str());
+	}
 
-	BinlogReaderMsg b1 = client.read_line(2000);
-	const trxid_t b1_start = b1.intervals.empty() ? 0 : b1.intervals[0].start;
-	const trxid_t b1_end   = b1.intervals.empty() ? 0 : b1.intervals[0].end;
-	ok(b1.valid() && b1.kind == "I3" && b1.uuid == expected_uuid &&
-	       b1.intervals.size() == 1 &&
-	       b1_start == base + 1 && b1_end == base + 5,
-	   "first batch is I3=%s:%lld-%lld (expected %s:%lld-%lld, raw='%s')",
-	   b1.uuid.c_str(), (long long)b1_start, (long long)b1_end,
-	   expected_uuid.c_str(), (long long)(base + 1), (long long)(base + 5),
-	   b1.raw.c_str());
+	BatchedRange b1 = read_batched_range(client, expected_uuid, base + 1,
+	                                     base + 5, true);
+	ok(b1.complete && (!b1_requires_aggregation || b1.aggregated),
+	   "first batch covers %lld-%lld in I3/I4 updates (aggregate required=%d, "
+	   "seen=%d, raw='%s'; error='%s')",
+	   (long long)(base + 1), (long long)(base + 5),
+	   b1_requires_aggregation, b1.aggregated,
+	   join_lines(b1.raw_lines).c_str(), b1.error.c_str());
 
-	// Second batch — same uuid, so should be I4.
-	for (int i = 6; i <= 10; ++i) {
+	// Second batch — same uuid, so every line should be I4.
+	const auto b2_burst_start = std::chrono::steady_clock::now();
+	for (int i = 6; i <= 9; ++i) {
 		if (!db.exec("INSERT INTO binlog_reader_test.batching_t (v) VALUES (" +
 		             std::to_string(i) + ")")) {
 			BAIL_OUT("INSERT failed: %s", db.last_error().c_str());
 		}
 	}
+	const bool b2_requires_aggregation = aggregation_is_required(
+		std::chrono::steady_clock::now() - b2_burst_start, cli.freq_ms);
+	cross_timer_boundary(cli.freq_ms);
+	if (!db.exec("INSERT INTO binlog_reader_test.batching_t (v) VALUES (10)")) {
+		BAIL_OUT("INSERT failed: %s", db.last_error().c_str());
+	}
 
-	BinlogReaderMsg b2 = client.read_line(2000);
-	const trxid_t b2_start = b2.intervals.empty() ? 0 : b2.intervals[0].start;
-	const trxid_t b2_end   = b2.intervals.empty() ? 0 : b2.intervals[0].end;
-	ok(b2.valid() && b2.kind == "I4" &&
-	       b2.intervals.size() == 1 &&
-	       b2_start == base + 6 && b2_end == base + 10,
-	   "second batch is I4=%lld-%lld (expected %lld-%lld, raw='%s')",
-	   (long long)b2_start, (long long)b2_end,
-	   (long long)(base + 6), (long long)(base + 10), b2.raw.c_str());
+	BatchedRange b2 = read_batched_range(client, expected_uuid, base + 6,
+	                                     base + 10, false);
+	ok(b2.complete && (!b2_requires_aggregation || b2.aggregated),
+	   "second batch covers %lld-%lld in I4 updates (aggregate required=%d, "
+	   "seen=%d, raw='%s'; error='%s')",
+	   (long long)(base + 6), (long long)(base + 10),
+	   b2_requires_aggregation, b2.aggregated,
+	   join_lines(b2.raw_lines).c_str(), b2.error.c_str());
 
 	return exit_status();
 }
