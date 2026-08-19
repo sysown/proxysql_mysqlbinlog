@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(15);
+	plan(16);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -38,6 +38,14 @@ int main() {
 	ok(set.has_gtid("9c6d6f00941211ef8c990242ac120002", 7) &&
 	       set.has_gtid("9c6d6f00941211ef8c990242ac120002", 9),
 	   "second UUID preserves its interval");
+
+	GTID_Set whitespace_set;
+	ok(parse_mysql_gtid_executed(
+	       "24684d2a-9412-11ef-8c99-0242ac120002:1-3,\n\t"
+	       "9c6d6f00-9412-11ef-8c99-0242ac120002:7-9",
+	       &whitespace_set) &&
+	       whitespace_set.has_gtid("9c6d6f00941211ef8c990242ac120002", 9),
+	   "parse whitespace-separated multi-UUID executed GTID set");
 
 	GTID_Set invalid;
 	ok(!parse_mysql_gtid_executed("not-a-gtid", &invalid),

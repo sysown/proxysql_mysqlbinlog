@@ -13,6 +13,22 @@ bool is_hex(char c) {
 	       (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
+bool is_separator_whitespace(char c) {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+std::string trim_separator_whitespace(const std::string& input) {
+	size_t start = 0;
+	while (start < input.size() && is_separator_whitespace(input[start]))
+		++start;
+
+	size_t end = input.size();
+	while (end > start && is_separator_whitespace(input[end - 1]))
+		--end;
+
+	return input.substr(start, end - start);
+}
+
 bool normalize_uuid(const std::string& input, std::string* output) {
 	if (!output || (input.size() != 32 && input.size() != 36))
 		return false;
@@ -105,8 +121,8 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out) {
 	size_t set_start = 0;
 	while (set_start < encoded.size()) {
 		const size_t set_end = encoded.find(',', set_start);
-		const std::string entry = encoded.substr(
-		    set_start, set_end == std::string::npos ? std::string::npos : set_end - set_start);
+		const std::string entry = trim_separator_whitespace(encoded.substr(
+		    set_start, set_end == std::string::npos ? std::string::npos : set_end - set_start));
 		const size_t uuid_end = entry.find(':');
 		if (uuid_end == std::string::npos || uuid_end == 0 || uuid_end == entry.size() - 1)
 			return false;
