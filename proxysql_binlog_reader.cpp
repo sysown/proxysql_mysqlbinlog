@@ -1,6 +1,8 @@
 #include <sstream>
 #include <signal.h>
 
+#include <atomic>
+
 #include <assert.h>
 #include <cerrno>
 #include <ev.h>
@@ -71,6 +73,7 @@ void proxy_log_func(const char *fmt, ...) {
 #define UUID_SIZE_BYTES                      64
 
 struct ev_async async;
+struct ev_async shutdown_async;
 std::vector<struct ev_io *> Clients;
 
 pid_t pid;
@@ -82,7 +85,9 @@ std::vector<uint64_t> trx_ids;
 
 static struct ev_loop *loop;
 
-volatile sig_atomic_t stopflag = 0;
+std::atomic<bool> stopflag(false);
+std::atomic<bool> server_loop_ready(false);
+std::atomic<bool> client_update_ready(false);
 MariaDBReplicationClient* replication_client = NULL;
 GTID_Set curpos;
 
@@ -568,17 +573,30 @@ void async_cb(struct ev_loop *loop, struct ev_async *watcher, int revents) {
 	return;
 }
 
+void shutdown_async_cb(struct ev_loop *event_loop, struct ev_async *watcher,
+	                   int revents) {
+	ev_break(event_loop, EVBREAK_ALL);
+}
+
+void request_server_shutdown() {
+	stopflag.store(true, std::memory_order_relaxed);
+	if (server_loop_ready.load(std::memory_order_acquire))
+		ev_async_send(loop, &shutdown_async);
+}
+
 void timer_cb(struct ev_loop *loop, struct ev_timer *t, int revents) {
 	write_clients();
 	return;
 }
 
 static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
-	stopflag = 1;
+	stopflag.store(true, std::memory_order_relaxed);
 	if (replication_client)
 		replication_client->interrupt();
 	//std::cout << " Received signal. Stopping at:" << std::endl;
+	pthread_mutex_lock(&pos_mutex);
 	std::string s1 = position_to_string(curpos);
+	pthread_mutex_unlock(&pos_mutex);
 	//std::cout << s1 << std::endl;
 	proxy_info("Received signal. Stopping at: %s", s1.c_str());
 	ev_break(loop, EVBREAK_ALL);
@@ -615,13 +633,15 @@ class GTID_Server_Dumper {
 		//struct ev_loop *my_loop = NULL;
 		my_loop = NULL;
 		my_loop = ev_loop_new (EVBACKEND_POLL | EVFLAG_NOENV);
-		loop = my_loop;
 		if (my_loop == NULL) {
 			fprintf(stderr,"could not initialise new loop");
 			exit(EXIT_FAILURE);
 		}
+		loop = my_loop;
 		ev_io_init(&ev_accept, accept_cb, sd, EV_READ);
 		ev_io_start(my_loop, &ev_accept);
+		ev_async_init(&shutdown_async, shutdown_async_cb);
+		ev_async_start(my_loop, &shutdown_async);
 		if (update_freq_ms) {
 			proxy_info("Pushing %s updates every %lums", update_batching ? "batched" : "non-batched", update_freq_ms);
 			ev_timer_init(&timer, timer_cb, update_freq_ms / 1000.0, update_freq_ms / 1000.0);
@@ -629,6 +649,7 @@ class GTID_Server_Dumper {
 		} else {
 			ev_async_init(&async, async_cb);
 			ev_async_start(my_loop, &async);
+			client_update_ready.store(true, std::memory_order_release);
 		}
 		ev_signal signal_watcher1;
 		ev_signal signal_watcher2;
@@ -636,7 +657,12 @@ class GTID_Server_Dumper {
 		ev_signal_init (&signal_watcher2, sigint_cb, SIGTERM);
 		ev_signal_start (loop, &signal_watcher1);
 		ev_signal_start (loop, &signal_watcher2);
+		server_loop_ready.store(true, std::memory_order_release);
+		if (stopflag.load(std::memory_order_relaxed))
+			ev_async_send(my_loop, &shutdown_async);
 		ev_run(my_loop, 0);
+		client_update_ready.store(false, std::memory_order_release);
+		server_loop_ready.store(false, std::memory_order_release);
 	}
 	~GTID_Server_Dumper() {
 		close(sd);
@@ -659,13 +685,13 @@ void bench_gtid_callback(const std::string& uuid, uint64_t trx_id) {
 	trx_ids.push_back(trx_id);
 	curpos.add(uuid, trx_id);
 	pthread_mutex_unlock(&pos_mutex);
-	if (!update_freq_ms) {
+	if (!update_freq_ms && client_update_ready.load(std::memory_order_acquire)) {
 		ev_async_send(loop, &async);
 	}
 }
 
 bool isStopping() {
-	return stopflag;
+	return stopflag.load(std::memory_order_relaxed);
 }
 
 void usage(const char* name) {
@@ -699,7 +725,7 @@ void usage(const char* name) {
 }
 
 void * server(void *args) {
-	GTID_Server_Dumper * serv_dump = new GTID_Server_Dumper(listen_port);
+	GTID_Server_Dumper serv_dump(listen_port);
 	return NULL;
 }
 
@@ -911,23 +937,26 @@ __start_label:
 		}
 		proxy_info("Last executed GTID: '%s'", s1.c_str());
 
-	pthread_t thread_id;
-	pthread_create(&thread_id, NULL, server , NULL);
-		test_delay_after_snapshot();
-
-		try {
-
-			proxy_info("Reading binlogs...");
-			client.open_stream();
-			client.stream_events(bench_gtid_callback, isStopping);
-
-
-		} catch (std::exception& ex) {
-			std::cout << "Error in reading binlogs: " << ex.what() << std::endl;
+		pthread_t thread_id;
+		const int thread_error = pthread_create(&thread_id, NULL, server, NULL);
+		if (thread_error != 0) {
+			proxy_error("Cannot start GTID server thread: %s", strerror(thread_error));
 			error = true;
-		}
+		} else {
+			test_delay_after_snapshot();
 
-		pthread_join(thread_id, NULL);
+			try {
+				proxy_info("Reading binlogs...");
+				client.open_stream();
+				client.stream_events(bench_gtid_callback, isStopping);
+			} catch (std::exception& ex) {
+				std::cout << "Error in reading binlogs: " << ex.what() << std::endl;
+				error = true;
+				request_server_shutdown();
+			}
+
+			pthread_join(thread_id, NULL);
+		}
 	} catch (std::exception& ex) {
 		std::cout << "Error in initializing replication client: " << ex.what() << std::endl;
 		error = true;
@@ -940,5 +969,5 @@ finish:
 	daemon_retval_send(255);
 	daemon_signal_done();
 	daemon_pid_file_remove();
-	return 0;
+	return error ? EXIT_FAILURE : EXIT_SUCCESS;
 }
