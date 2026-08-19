@@ -55,6 +55,21 @@ jobs:
           fi
           test/verify-package-contents.sh "${packages[0]}"
 
+      - name: Inspect package metadata
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          case "${{ matrix.distro }}" in
+            centos*) packages=(binaries/*.rpm) ;;
+            *) packages=(binaries/*.deb) ;;
+          esac
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "expected exactly one package for ${{ matrix.distro }}, found ${#packages[@]}" >&2
+            printf "%s\n" "${packages[@]}" >&2
+            exit 1
+          fi
+          test/verify-package-dependencies.sh "${packages[0]}"
+
       - name: List built artifacts
         run: ls -l binaries/
 

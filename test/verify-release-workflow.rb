@@ -8,6 +8,7 @@ BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
+PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
 RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
 RUNNER_DOCKERFILE = "docker/build/build-ubuntu24/Dockerfile"
 MYSQL_TEST_STEPS = {
@@ -127,13 +128,13 @@ def assert_matrix(actual, label)
 end
 
 
-def assert_single_package_enumeration(command, label)
+def assert_single_package_enumeration(command, label, verifier_command)
   lines = command.lines.map(&:strip).reject(&:empty?)
   nullglob_index = line_index(lines, "shopt -s nullglob", label)
   rpm_index = line_index(lines, "centos*) packages=(binaries/*.rpm) ;;", label)
   deb_index = line_index(lines, "*) packages=(binaries/*.deb) ;;", label)
   guard_index = line_index(lines, "if [[ ${#packages[@]} -ne 1 ]]; then", label)
-  invocation_index = line_index(lines, PACKAGE_VERIFIER_COMMAND, label)
+  invocation_index = line_index(lines, verifier_command, label)
   guard_exit_index = lines.each_index.find do |index|
     index > guard_index && lines[index] == "exit 1"
   end
@@ -146,6 +147,15 @@ def assert_single_package_enumeration(command, label)
   unless nullglob_index < rpm_index && nullglob_index < deb_index && rpm_index < guard_index && deb_index < guard_index && guard_index < guard_exit_index && guard_exit_index < guard_end_index && guard_end_index < invocation_index
     fail("#{label} must enumerate and reject unexpected package counts before verification")
   end
+end
+
+
+def assert_package_metadata(steps, label)
+  metadata_index = step_index(steps, "Inspect package metadata")
+  metadata_command = steps[metadata_index].fetch("run", "")
+  assert_single_package_enumeration(metadata_command, "#{label} metadata",
+                                    PACKAGE_METADATA_VERIFIER_COMMAND)
+  metadata_index
 end
 
 
@@ -177,13 +187,16 @@ def assert_release_package_contract(release)
   verify_index = step_index(package_steps, "Verify package contents")
   verify_command = package_steps[verify_index].fetch("run", "")
   fail("release package verification does not run the package contents checker") unless verify_command.include?("test/verify-package-contents.sh")
-  assert_single_package_enumeration(verify_command, "release package verification")
+  assert_single_package_enumeration(verify_command, "release package verification",
+                                    PACKAGE_VERIFIER_COMMAND)
+
+  metadata_index = assert_package_metadata(package_steps, "release package")
 
   list_index = step_index(package_steps, "List built artifacts")
   upload_artifact_index = step_index(package_steps, "Upload package artifact")
   upload_release_index = step_index(package_steps, "Upload package to GitHub release")
-  unless package_indexes.first < verify_index && verify_index < list_index && verify_index < upload_artifact_index && verify_index < upload_release_index
-    fail("release package contents must be verified after packaging and before artifact handling")
+  unless package_indexes.first < verify_index && verify_index < metadata_index && metadata_index < list_index && metadata_index < upload_artifact_index && metadata_index < upload_release_index
+    fail("release package contents and metadata must be verified after packaging and before artifact handling")
   end
 end
 
@@ -250,12 +263,17 @@ end
 
 
 def assert_ci_contract(ci)
+  fail("CI workflow permissions must be exactly contents: read") unless ci["permissions"] == {"contents" => "read"}
+
   jobs = ci.fetch("jobs")
   packages_job = jobs.fetch("packages")
   assert_matrix(matrix(packages_job, "target", "CI packages"), "CI packages matrix")
   package_steps = steps(packages_job, "CI packages")
   package_verify_index = step_index(package_steps, "Verify package contents")
-  assert_single_package_enumeration(package_steps[package_verify_index].fetch("run", ""), "CI package verification")
+  assert_single_package_enumeration(package_steps[package_verify_index].fetch("run", ""), "CI package verification",
+                                    PACKAGE_VERIFIER_COMMAND)
+  metadata_index = assert_package_metadata(package_steps, "CI package")
+  fail("CI package metadata must be checked after package contents") unless package_verify_index < metadata_index
 
   contract_job = jobs.fetch("workflow-contract")
   contract_steps = steps(contract_job, "workflow-contract")

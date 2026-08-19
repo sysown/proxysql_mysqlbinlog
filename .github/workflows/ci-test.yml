@@ -7,6 +7,9 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   workflow-contract:
     name: workflow contract
@@ -79,15 +82,17 @@ jobs:
             proxysql/proxysql-mysqlbinlog:build-${{ matrix.target }} \
             bash -lc '
               set -euo pipefail
+              shopt -s nullglob
               case "${{ matrix.target }}" in
-                centos*) dependencies="$(rpm -qp --requires binaries/*.rpm)" ;;
-                *) dependencies="$(dpkg-deb -f binaries/*.deb Depends)" ;;
+                centos*) packages=(binaries/*.rpm) ;;
+                *) packages=(binaries/*.deb) ;;
               esac
-              printf "%s\\n" "$dependencies"
-              if grep -Eqi "libmariadb|mariadb-connector-c|libmysqlclient" <<<"$dependencies"; then
-                echo "package metadata must not depend on a MariaDB/MySQL client library" >&2
+              if [[ ${#packages[@]} -ne 1 ]]; then
+                echo "expected exactly one package for ${{ matrix.target }}, found ${#packages[@]}" >&2
+                printf "%s\\n" "${packages[@]}" >&2
                 exit 1
               fi
+              test/verify-package-dependencies.sh "${packages[0]}"
             '
 
   test:
