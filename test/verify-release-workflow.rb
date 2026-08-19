@@ -299,6 +299,12 @@ def assert_ci_contract(ci)
   fail("CI test job must not use continue-on-error") if test_job.key?("continue-on-error")
 
   test_steps = steps(test_job, "CI test")
+  reader_build_index = step_index(test_steps, "Build and inspect vendored reader")
+  reader_build_command = test_steps[reader_build_index].fetch("run", "")
+  unless reader_build_command.include?("test/verify-shutdown-handshake.sh")
+    fail("CI reader build must verify the shutdown handshake ordering")
+  end
+
   mysql_test_names = test_steps.filter_map do |step|
     name = step["name"]
     name if name.is_a?(String) && name.start_with?("Test MySQL ")

@@ -124,7 +124,7 @@ jobs:
             -v "${{ github.workspace }}":/opt/proxysql_mysqlbinlog \
             -w /opt/proxysql_mysqlbinlog \
             proxysql/proxysql-mysqlbinlog:build-ubuntu24 \
-            bash -lc 'make cleanbuild && make -j2 && make verify-static-connector-c && make -C test/tap'
+            bash -lc 'make cleanbuild && make -j2 && make verify-static-connector-c && test/verify-shutdown-handshake.sh && make -C test/tap'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

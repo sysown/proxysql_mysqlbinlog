@@ -579,8 +579,8 @@ void shutdown_async_cb(struct ev_loop *event_loop, struct ev_async *watcher,
 }
 
 void request_server_shutdown() {
-	stopflag.store(true, std::memory_order_relaxed);
-	if (server_loop_ready.load(std::memory_order_acquire))
+	stopflag.store(true, std::memory_order_seq_cst);
+	if (server_loop_ready.load(std::memory_order_seq_cst))
 		ev_async_send(loop, &shutdown_async);
 }
 
@@ -657,8 +657,8 @@ class GTID_Server_Dumper {
 		ev_signal_init (&signal_watcher2, sigint_cb, SIGTERM);
 		ev_signal_start (loop, &signal_watcher1);
 		ev_signal_start (loop, &signal_watcher2);
-		server_loop_ready.store(true, std::memory_order_release);
-		if (stopflag.load(std::memory_order_relaxed))
+		server_loop_ready.store(true, std::memory_order_seq_cst);
+		if (stopflag.load(std::memory_order_seq_cst))
 			ev_async_send(my_loop, &shutdown_async);
 		ev_run(my_loop, 0);
 		client_update_ready.store(false, std::memory_order_release);
