@@ -98,7 +98,7 @@ docker run -d --name binlog-reader -p 6020:6020 \
 
 on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 
-```
+```sh
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
 ```
 
@@ -107,7 +107,7 @@ on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
 TLS is required and server-certificate verification is enabled by default. For a
 verified connection, provide the CA that issued the MySQL server certificate:
 
-```
+```sh
 ./proxysql_binlog_reader -h mysql1 -u reader -p secret -P 3306 -l 6020 -f \
   --ssl-mode=REQUIRED --ssl-verify-server-cert=1 \
   --ssl-ca=/etc/proxysql-mysqlbinlog/mysql-ca.pem
@@ -117,7 +117,7 @@ For a self-signed development or private test server, encryption can remain
 required while certificate and host trust checks are disabled. This is an
 insecure, test/private-only decision:
 
-```
+```sh
 ./proxysql_binlog_reader -h mysql1 -u reader -p secret -P 3306 -l 6020 -f \
   --ssl-mode=REQUIRED --ssl-verify-server-cert=0
 ```
@@ -151,7 +151,7 @@ The Docker TAP suite uses dbdeployer sandboxes for MySQL `5.7`, `8.0`, `8.4`,
 `9.0`, and `9.4`. After building the reader and TAP tests, run one version
 during local iteration with:
 
-```
+```sh
 MYSQL_VERSIONS=84 test/infra/start-test.sh
 ```
 

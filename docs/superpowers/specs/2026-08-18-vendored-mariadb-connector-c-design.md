@@ -19,8 +19,8 @@ The top-level Makefile will unpack the archive into an ignored directory and
 use CMake to build `libmariadbclient.a`. The Connector/C configuration sets
 `CLIENT_PLUGIN_CACHING_SHA2_PASSWORD=STATIC`, embedding the authentication
 plugin in the archive. The reader links that archive directly rather than
-calling `mariadb_config`; Connector/C's required system libraries, including
-OpenSSL and zlib, remain normal platform-provided dependencies.
+calling `mariadb_config`; OpenSSL remains a normal platform-provided
+dependency, while the configured Connector/C static library bundles zlib.
 
 Build images install generic development tools and headers only. They no longer
 install a distribution Connector/C development package.
