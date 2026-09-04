@@ -7,8 +7,14 @@ BUILD_TAG = "proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }}"
 BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
+GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
+GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
+RUNTIME_IMAGE_CONFIGURATION_STEP = "Verify runtime image configuration"
+RUNTIME_IMAGE_CONFIGURATION_COMMAND = "test/verify-runtime-tls-env.sh"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
+PUBLIC_ACCESS_STEP = "Verify public GHCR access"
+PUBLIC_ACCESS_COMMAND = 'test/verify-ghcr-public-access.sh "${IMAGE_PREFIX}:latest"'
 RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
 RUNNER_DOCKERFILE = "docker/build/build-ubuntu24/Dockerfile"
 MYSQL_TEST_STEPS = {
@@ -207,6 +213,16 @@ def assert_release_container_contract(release)
 end
 
 
+def assert_release_publish_contract(release)
+  publish_steps = steps(release.fetch("jobs").fetch("publish"), "release publish")
+  push_index = step_index(publish_steps, "Push all tags")
+  public_access_index = step_index(publish_steps, PUBLIC_ACCESS_STEP)
+  public_access_command = publish_steps[public_access_index].fetch("run", "")
+  fail("release public-access verification must run #{PUBLIC_ACCESS_COMMAND.inspect}") unless public_access_command == PUBLIC_ACCESS_COMMAND
+  fail("release public-access verification must run after pushing all tags") unless push_index < public_access_index
+end
+
+
 def assert_release_test_images_contract(release)
   job = release.fetch("jobs").fetch("test-images")
   fail("release test-images RUNNER_IMG is not #{RUNNER_IMAGE.inspect}") unless job.fetch("env").fetch("RUNNER_IMG") == RUNNER_IMAGE
@@ -278,6 +294,25 @@ def assert_ci_contract(ci)
   contract_job = jobs.fetch("workflow-contract")
   contract_steps = steps(contract_job, "workflow-contract")
   checkout_index = step_index(contract_steps, "Check out source")
+  release_workflow_index = step_index(contract_steps, "Verify release workflow contract")
+  ghcr_access_checker_index = step_index(contract_steps, GHCR_ACCESS_CHECKER_STEP)
+  ghcr_access_checker_command = contract_steps[ghcr_access_checker_index].fetch("run", "")
+  unless ghcr_access_checker_command == GHCR_ACCESS_CHECKER_COMMAND
+    fail("workflow-contract GHCR access checker must run #{GHCR_ACCESS_CHECKER_COMMAND.inspect}")
+  end
+  unless checkout_index < release_workflow_index && release_workflow_index < ghcr_access_checker_index
+    fail("workflow-contract must check out source and verify the release workflow before checking GHCR access")
+  end
+
+  runtime_image_configuration_index = step_index(contract_steps, RUNTIME_IMAGE_CONFIGURATION_STEP)
+  runtime_image_configuration_command = contract_steps[runtime_image_configuration_index].fetch("run", "")
+  unless runtime_image_configuration_command == RUNTIME_IMAGE_CONFIGURATION_COMMAND
+    fail("workflow-contract runtime image configuration verification must run #{RUNTIME_IMAGE_CONFIGURATION_COMMAND.inspect}")
+  end
+  unless checkout_index < runtime_image_configuration_index && ghcr_access_checker_index < runtime_image_configuration_index
+    fail("workflow-contract must check out source and verify GHCR access before verifying runtime image configuration")
+  end
+
   checker_steps = contract_steps.each_index.select do |index|
     contract_steps[index].fetch("run", "").strip == CHECKER_COMMAND
   end
@@ -330,4 +365,5 @@ ci = load_workflow(ci_path)
 assert_release_package_contract(release)
 assert_release_container_contract(release)
 assert_release_test_images_contract(release)
+assert_release_publish_contract(release)
 assert_ci_contract(ci)

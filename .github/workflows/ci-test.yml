@@ -21,6 +21,12 @@ jobs:
       - name: Verify release workflow contract
         run: ruby test/verify-release-workflow.rb
 
+      - name: Verify GHCR access checker
+        run: test/verify-ghcr-public-access-test.sh
+
+      - name: Verify runtime image configuration
+        run: test/verify-runtime-tls-env.sh
+
   packages:
     name: package (${{ matrix.target }})
     runs-on: ubuntu-latest

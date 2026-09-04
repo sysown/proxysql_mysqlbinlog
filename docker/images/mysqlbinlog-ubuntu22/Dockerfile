@@ -1,6 +1,7 @@
 FROM ubuntu:22.04
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
+LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"
 
 # Runtime OpenSSL libraries required by the reader.
 RUN apt-get -y update && \
