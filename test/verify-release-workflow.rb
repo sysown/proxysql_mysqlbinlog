@@ -9,6 +9,8 @@ PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
 GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
 GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
+RUNTIME_IMAGE_CONFIGURATION_STEP = "Verify runtime image configuration"
+RUNTIME_IMAGE_CONFIGURATION_COMMAND = "test/verify-runtime-tls-env.sh"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
 PUBLIC_ACCESS_STEP = "Verify public GHCR access"
@@ -300,6 +302,15 @@ def assert_ci_contract(ci)
   end
   unless checkout_index < release_workflow_index && release_workflow_index < ghcr_access_checker_index
     fail("workflow-contract must check out source and verify the release workflow before checking GHCR access")
+  end
+
+  runtime_image_configuration_index = step_index(contract_steps, RUNTIME_IMAGE_CONFIGURATION_STEP)
+  runtime_image_configuration_command = contract_steps[runtime_image_configuration_index].fetch("run", "")
+  unless runtime_image_configuration_command == RUNTIME_IMAGE_CONFIGURATION_COMMAND
+    fail("workflow-contract runtime image configuration verification must run #{RUNTIME_IMAGE_CONFIGURATION_COMMAND.inspect}")
+  end
+  unless checkout_index < runtime_image_configuration_index && ghcr_access_checker_index < runtime_image_configuration_index
+    fail("workflow-contract must check out source and verify GHCR access before verifying runtime image configuration")
   end
 
   checker_steps = contract_steps.each_index.select do |index|
