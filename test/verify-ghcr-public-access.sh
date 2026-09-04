@@ -20,6 +20,7 @@ token_url=${GHCR_TOKEN_URL:-https://ghcr.io/token}
 registry_url=${GHCR_REGISTRY_URL:-https://ghcr.io}
 
 if ! token_response=$("$curl_bin" \
+    --disable \
     --fail \
     --silent \
     --show-error \
@@ -51,6 +52,7 @@ sys.stdout.write(token)
 fi
 
 if ! status=$("$curl_bin" \
+    --disable \
     --silent \
     --show-error \
     --output /dev/null \

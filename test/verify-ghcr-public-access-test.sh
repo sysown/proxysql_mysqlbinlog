@@ -52,6 +52,8 @@ has_data_urlencode() {
     return 1
 }
 
+[[ "${1:-}" == --disable ]] || exit 64
+
 url=${!#}
 if [[ "$url" == "$GHCR_TOKEN_URL" ]]; then
     has_arg --fail "$@" || exit 64
