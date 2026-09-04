@@ -9,6 +9,8 @@ PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
+PUBLIC_ACCESS_STEP = "Verify public GHCR access"
+PUBLIC_ACCESS_COMMAND = 'test/verify-ghcr-public-access.sh "${IMAGE_PREFIX}:latest"'
 RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
 RUNNER_DOCKERFILE = "docker/build/build-ubuntu24/Dockerfile"
 MYSQL_TEST_STEPS = {
@@ -207,6 +209,16 @@ def assert_release_container_contract(release)
 end
 
 
+def assert_release_publish_contract(release)
+  publish_steps = steps(release.fetch("jobs").fetch("publish"), "release publish")
+  push_index = step_index(publish_steps, "Push all tags")
+  public_access_index = step_index(publish_steps, PUBLIC_ACCESS_STEP)
+  public_access_command = publish_steps[public_access_index].fetch("run", "")
+  fail("release public-access verification must run #{PUBLIC_ACCESS_COMMAND.inspect}") unless public_access_command == PUBLIC_ACCESS_COMMAND
+  fail("release public-access verification must run after pushing all tags") unless push_index < public_access_index
+end
+
+
 def assert_release_test_images_contract(release)
   job = release.fetch("jobs").fetch("test-images")
   fail("release test-images RUNNER_IMG is not #{RUNNER_IMAGE.inspect}") unless job.fetch("env").fetch("RUNNER_IMG") == RUNNER_IMAGE
@@ -330,4 +342,5 @@ ci = load_workflow(ci_path)
 assert_release_package_contract(release)
 assert_release_container_contract(release)
 assert_release_test_images_contract(release)
+assert_release_publish_contract(release)
 assert_ci_contract(ci)
