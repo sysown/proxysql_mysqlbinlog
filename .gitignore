@@ -7,6 +7,9 @@ mariadb_replication.o
 # Test logs
 test/logs/
 
+# Local linked worktrees
+.worktrees/
+
 # Unpacked third-party sources
 libev-4.24
 libdaemon-0.14
