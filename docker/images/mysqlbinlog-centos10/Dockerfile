@@ -1,6 +1,7 @@
 FROM quay.io/centos/centos:10
 
 LABEL authors="Miro Stauder <miro@proxysql.com>"
+LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"
 
 # fix keys
 #RUN rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial

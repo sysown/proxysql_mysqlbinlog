@@ -24,6 +24,12 @@ require_text() {
 
 for relative in "${dockerfiles[@]}"; do
     file="$repo/$relative"
+    mapfile -t source_labels < <(grep -Fx 'LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"' "$file")
+    if [[ ${#source_labels[@]} -ne 1 ]]; then
+        echo "$relative: expected exactly one org.opencontainers.image.source label" >&2
+        fail=1
+    fi
+
     mapfile -t commands < <(awk '/^[[:space:]]*CMD[[:space:]]*\[/ { print }' "$file")
     if [[ ${#commands[@]} -ne 1 ]]; then
         echo "$relative: expected exactly one executable-form CMD" >&2
