@@ -240,3 +240,6 @@ jobs:
 
       - name: Push all tags
         run: docker push --all-tags "${IMAGE_PREFIX}"
+
+      - name: Verify public GHCR access
+        run: test/verify-ghcr-public-access.sh "${IMAGE_PREFIX}:latest"
