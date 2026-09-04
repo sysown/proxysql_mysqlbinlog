@@ -13,6 +13,7 @@ dockerfiles=(
 )
 
 fail=0
+expected_source_label='LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"'
 
 require_text() {
     local file=$1 command=$2 expected=$3
@@ -24,9 +25,9 @@ require_text() {
 
 for relative in "${dockerfiles[@]}"; do
     file="$repo/$relative"
-    mapfile -t source_labels < <(grep -Fx 'LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"' "$file")
-    if [[ ${#source_labels[@]} -ne 1 ]]; then
-        echo "$relative: expected exactly one org.opencontainers.image.source label" >&2
+    mapfile -t source_labels < <(grep -E '^[[:space:]]*LABEL[[:space:]]+org\.opencontainers\.image\.source=' "$file")
+    if [[ ${#source_labels[@]} -ne 1 ]] || [[ "${source_labels[0]:-}" != "$expected_source_label" ]]; then
+        echo "$relative: expected exactly one org.opencontainers.image.source label with the expected value" >&2
         fail=1
     fi
 
