@@ -101,7 +101,7 @@ assert_status() {
 }
 
 set +e
-success_output=$(run_verifier success 2>&1)
+run_verifier success >/dev/null 2>&1
 success_status=$?
 set -e
 assert_status 0 "$success_status" success
