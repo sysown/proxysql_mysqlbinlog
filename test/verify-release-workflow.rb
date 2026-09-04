@@ -7,6 +7,8 @@ BUILD_TAG = "proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }}"
 BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
+GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
+GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
 PUBLIC_ACCESS_STEP = "Verify public GHCR access"
@@ -290,6 +292,16 @@ def assert_ci_contract(ci)
   contract_job = jobs.fetch("workflow-contract")
   contract_steps = steps(contract_job, "workflow-contract")
   checkout_index = step_index(contract_steps, "Check out source")
+  release_workflow_index = step_index(contract_steps, "Verify release workflow contract")
+  ghcr_access_checker_index = step_index(contract_steps, GHCR_ACCESS_CHECKER_STEP)
+  ghcr_access_checker_command = contract_steps[ghcr_access_checker_index].fetch("run", "")
+  unless ghcr_access_checker_command == GHCR_ACCESS_CHECKER_COMMAND
+    fail("workflow-contract GHCR access checker must run #{GHCR_ACCESS_CHECKER_COMMAND.inspect}")
+  end
+  unless checkout_index < release_workflow_index && release_workflow_index < ghcr_access_checker_index
+    fail("workflow-contract must check out source and verify the release workflow before checking GHCR access")
+  end
+
   checker_steps = contract_steps.each_index.select do |index|
     contract_steps[index].fetch("run", "").strip == CHECKER_COMMAND
   end
