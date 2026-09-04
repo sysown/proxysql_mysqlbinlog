@@ -13,7 +13,84 @@ dockerfiles=(
 )
 
 fail=0
-expected_source_label='LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"'
+expected_source_label='org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"'
+
+source_label_assignments() {
+    awk '
+        function emit_source_label(token) {
+            if (token ~ /^org\.opencontainers\.image\.source=/) {
+                print token
+            }
+        }
+
+        function inspect_label(instruction, text, position, character, token, quote, escaped) {
+            sub(/^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]+/, "", instruction)
+            text = instruction
+            token = ""
+            quote = ""
+            escaped = 0
+
+            for (position = 1; position <= length(text); position++) {
+                character = substr(text, position, 1)
+                if (escaped) {
+                    token = token character
+                    escaped = 0
+                } else if (character == "\\") {
+                    token = token character
+                    escaped = 1
+                } else if (quote != "") {
+                    token = token character
+                    if (character == quote) {
+                        quote = ""
+                    }
+                } else if (character == "\"" || character == "\047") {
+                    token = token character
+                    quote = character
+                } else if (character ~ /[[:space:]]/) {
+                    emit_source_label(token)
+                    token = ""
+                } else {
+                    token = token character
+                }
+            }
+
+            emit_source_label(token)
+        }
+
+        {
+            line = $0
+            sub(/[[:space:]]+$/, "", line)
+            continued = line ~ /\\$/
+            if (continued) {
+                sub(/\\$/, "", line)
+            }
+
+            if (pending != "") {
+                pending = pending " " line
+                if (continued) {
+                    next
+                }
+                inspect_label(pending)
+                pending = ""
+                next
+            }
+
+            if (line ~ /^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]/) {
+                if (continued) {
+                    pending = line
+                } else {
+                    inspect_label(line)
+                }
+            }
+        }
+
+        END {
+            if (pending != "") {
+                inspect_label(pending)
+            }
+        }
+    ' "$1"
+}
 
 require_text() {
     local file=$1 command=$2 expected=$3
@@ -25,7 +102,7 @@ require_text() {
 
 for relative in "${dockerfiles[@]}"; do
     file="$repo/$relative"
-    mapfile -t source_labels < <(grep -E '^[[:space:]]*LABEL[[:space:]]+org\.opencontainers\.image\.source=' "$file")
+    mapfile -t source_labels < <(source_label_assignments "$file")
     if [[ ${#source_labels[@]} -ne 1 ]] || [[ "${source_labels[0]:-}" != "$expected_source_label" ]]; then
         echo "$relative: expected exactly one org.opencontainers.image.source label with the expected value" >&2
         fail=1
