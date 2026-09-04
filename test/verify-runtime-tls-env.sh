@@ -70,26 +70,42 @@ source_label_assignments() {
                 if (continued) {
                     next
                 }
-                inspect_label(pending)
+                if (pending ~ /^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]/) {
+                    inspect_label(pending)
+                }
                 pending = ""
                 next
             }
 
-            if (line ~ /^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]/) {
-                if (continued) {
-                    pending = line
-                } else {
-                    inspect_label(line)
-                }
+            if (continued) {
+                pending = line
+            } else if (line ~ /^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]/) {
+                inspect_label(line)
             }
         }
 
         END {
-            if (pending != "") {
+            if (pending ~ /^[[:space:]]*[Ll][Aa][Bb][Ee][Ll][[:space:]]/) {
                 inspect_label(pending)
             }
         }
     ' "$1"
+}
+
+verify_source_label_parser() {
+    local fixture output
+    fixture=$(mktemp)
+    trap 'rm -f "$fixture"' RETURN
+    printf '%s\n' \
+        'FROM alpine' \
+        'RUN printf "%s" \\' \
+        'LABEL org.opencontainers.image.source="https://github.com/sysown/proxysql_mysqlbinlog"' \
+        >"$fixture"
+    output=$(source_label_assignments "$fixture")
+    if [[ -n "$output" ]]; then
+        echo 'continued non-LABEL instruction must not produce a source label' >&2
+        fail=1
+    fi
 }
 
 require_text() {
@@ -99,6 +115,8 @@ require_text() {
         fail=1
     fi
 }
+
+verify_source_label_parser
 
 for relative in "${dockerfiles[@]}"; do
     file="$repo/$relative"

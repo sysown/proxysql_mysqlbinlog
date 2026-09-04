@@ -24,6 +24,8 @@ if ! token_response=$("$curl_bin" \
     --fail \
     --silent \
     --show-error \
+    --connect-timeout 10 \
+    --max-time 30 \
     --get \
     --data-urlencode 'service=ghcr.io' \
     --data-urlencode "scope=repository:${repository}:pull" \
@@ -55,6 +57,8 @@ if ! status=$("$curl_bin" \
     --disable \
     --silent \
     --show-error \
+    --connect-timeout 10 \
+    --max-time 30 \
     --output /dev/null \
     --write-out '%{http_code}' \
     -H "Authorization: Bearer ${token}" \

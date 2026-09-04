@@ -28,6 +28,18 @@ has_arg() {
     return 1
 }
 
+has_option_value() {
+    local option=$1 expected=$2 previous= arg
+    shift 2
+    for arg in "$@"; do
+        if [[ "$previous" == "$option" && "$arg" == "$expected" ]]; then
+            return 0
+        fi
+        previous=$arg
+    done
+    return 1
+}
+
 has_header() {
     local expected=$1 previous= arg
     shift
@@ -60,6 +72,8 @@ if [[ "$url" == "$GHCR_TOKEN_URL" ]]; then
     has_arg --silent "$@" || exit 64
     has_arg --show-error "$@" || exit 64
     has_arg --get "$@" || exit 64
+    has_option_value --connect-timeout 10 "$@" || exit 64
+    has_option_value --max-time 30 "$@" || exit 64
     has_data_urlencode 'service=ghcr.io' "$@" || exit 64
     has_data_urlencode 'scope=repository:acme/widget:pull' "$@" || exit 64
     printf 'token\n' >>"$FAKE_CURL_CALL_LOG"
@@ -74,6 +88,8 @@ fi
 [[ "$(head -n 1 "$FAKE_CURL_CALL_LOG")" == token ]] || exit 64
 has_arg --silent "$@" || exit 64
 has_arg --show-error "$@" || exit 64
+has_option_value --connect-timeout 10 "$@" || exit 64
+has_option_value --max-time 30 "$@" || exit 64
 has_arg --output /dev/null "$@" || exit 64
 has_arg --write-out '%{http_code}' "$@" || exit 64
 has_header 'Authorization: Bearer anonymous-token' "$@" || exit 64
