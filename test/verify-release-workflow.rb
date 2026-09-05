@@ -26,6 +26,8 @@ GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
 GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
 RUNTIME_IMAGE_CONFIGURATION_STEP = "Verify runtime image configuration"
 RUNTIME_IMAGE_CONFIGURATION_COMMAND = "test/verify-runtime-tls-env.sh"
+LIBDAEMON_ARM64_CONFIGURATION_STEP = "Verify libdaemon ARM64 bootstrap"
+LIBDAEMON_ARM64_CONFIGURATION_COMMAND = "test/verify-libdaemon-aarch64-config.sh"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
 PUSH_STAGING_IMAGES_STEP = "Push verified staging images"
@@ -413,6 +415,15 @@ def assert_ci_contract(ci)
   end
   unless checkout_index < runtime_image_configuration_index && ghcr_access_checker_index < runtime_image_configuration_index
     fail("workflow-contract must check out source and verify GHCR access before verifying runtime image configuration")
+  end
+
+  libdaemon_arm64_configuration_index = step_index(contract_steps, LIBDAEMON_ARM64_CONFIGURATION_STEP)
+  libdaemon_arm64_configuration_command = contract_steps[libdaemon_arm64_configuration_index].fetch("run", "")
+  unless libdaemon_arm64_configuration_command == LIBDAEMON_ARM64_CONFIGURATION_COMMAND
+    fail("workflow-contract libdaemon ARM64 bootstrap verification must run #{LIBDAEMON_ARM64_CONFIGURATION_COMMAND.inspect}")
+  end
+  unless runtime_image_configuration_index < libdaemon_arm64_configuration_index
+    fail("workflow-contract must verify runtime image configuration before the libdaemon ARM64 bootstrap")
   end
 
   checker_steps = contract_steps.each_index.select do |index|

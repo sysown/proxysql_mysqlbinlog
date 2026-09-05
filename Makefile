@@ -79,6 +79,7 @@ libev: libev/.libs/libev.a
 libdaemon/libdaemon/.libs/libdaemon.a:
 	rm -rf libdaemon-*/ || true
 	tar -zxf libdaemon-0.14.tar.gz
+	patch -p1 < patches/libdaemon-aarch64-config.patch
 	cd libdaemon && ./configure --disable-examples
 	cd libdaemon && CC=${CC} CXX=${CXX} ${MAKE}
 libdaemon: libdaemon/libdaemon/.libs/libdaemon.a

@@ -27,6 +27,9 @@ jobs:
       - name: Verify runtime image configuration
         run: test/verify-runtime-tls-env.sh
 
+      - name: Verify libdaemon ARM64 bootstrap
+        run: test/verify-libdaemon-aarch64-config.sh
+
   packages:
     name: package (${{ matrix.target }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
