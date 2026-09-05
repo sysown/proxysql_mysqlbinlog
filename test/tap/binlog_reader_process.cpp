@@ -84,7 +84,9 @@ bool BinlogReaderProcess::start() {
 	}
 
 	argv.push_back("-l");
-	argv.push_back(std::to_string(listen_port));
+	argv.push_back(listen_address.empty()
+	                   ? std::to_string(listen_port)
+	                   : listen_address + ":" + std::to_string(listen_port));
 
 	argv.push_back("--ssl-mode");
 	argv.push_back(tls_mode_name(tls.mode));
@@ -174,7 +176,8 @@ bool BinlogReaderProcess::wait_ready(int timeout_ms) {
 			pid_ = -1;
 			return false;
 		}
-		if (port_open("127.0.0.1", listen_port))
+		if (port_open(listen_address.empty() ? "127.0.0.1" : listen_address,
+		              listen_port))
 			return true;
 		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}

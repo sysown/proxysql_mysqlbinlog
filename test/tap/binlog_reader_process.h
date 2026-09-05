@@ -16,6 +16,7 @@ class BinlogReaderProcess {
 	std::string mysql_user = "root";
 	std::string mysql_password = "root";
 	int         listen_port = 6020;
+	std::string listen_address;
 	std::string log_file_path;
 	TLSOptions  tls;
 	int         freq_ms = -1;

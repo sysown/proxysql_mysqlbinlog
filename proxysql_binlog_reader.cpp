@@ -99,10 +99,98 @@ uint64_t last_trx_id = 0;
 // Global arguments
 char *errorlog = NULL;
 bool foreground = false;
-unsigned int listen_port = DEFAULT_LISTEN_PORT;
 size_t max_netbuflen = 0;
 uint64_t update_freq_ms = 0;
 bool update_batching = true;
+
+struct ListenerConfig {
+	int family;
+	struct sockaddr_storage address;
+	socklen_t address_length;
+	unsigned int port;
+};
+
+ListenerConfig listener_config;
+
+static bool parse_listener_port(const std::string& value, unsigned int* port) {
+	if (value.empty())
+		return false;
+
+	unsigned long parsed = 0;
+	for (std::string::const_iterator it = value.begin(); it != value.end(); ++it) {
+		if (*it < '0' || *it > '9')
+			return false;
+		const unsigned long digit = static_cast<unsigned long>(*it - '0');
+		if (parsed > (65535 - digit) / 10)
+			return false;
+		parsed = parsed * 10 + digit;
+	}
+
+	if (parsed == 0)
+		return false;
+	*port = static_cast<unsigned int>(parsed);
+	return true;
+}
+
+static bool parse_listener_config(const char* value, ListenerConfig* config) {
+	if (!value || !*value || !config)
+		return false;
+
+	const std::string spec(value);
+	std::string host;
+	std::string port;
+	int family = AF_INET;
+
+	if (spec[0] == '[') {
+		const std::string::size_type bracket = spec.find(']');
+		if (bracket == std::string::npos || bracket == 1 ||
+		    bracket + 1 >= spec.size() || spec[bracket + 1] != ':')
+			return false;
+		host = spec.substr(1, bracket - 1);
+		port = spec.substr(bracket + 2);
+		family = AF_INET6;
+	} else {
+		const std::string::size_type colon = spec.find(':');
+		if (colon == std::string::npos) {
+			port = spec;
+		} else {
+			if (colon == 0 || colon != spec.rfind(':'))
+				return false;
+			host = spec.substr(0, colon);
+			port = spec.substr(colon + 1);
+		}
+	}
+
+	unsigned int parsed_port = 0;
+	if (!parse_listener_port(port, &parsed_port))
+		return false;
+
+	memset(config, 0, sizeof(*config));
+	config->family = family;
+	config->port = parsed_port;
+	if (family == AF_INET) {
+		struct sockaddr_in* address =
+			reinterpret_cast<struct sockaddr_in*>(&config->address);
+		address->sin_family = AF_INET;
+		address->sin_port = htons(parsed_port);
+		if (host.empty()) {
+			address->sin_addr.s_addr = INADDR_ANY;
+		} else if (inet_pton(AF_INET, host.c_str(), &address->sin_addr) != 1) {
+			return false;
+		}
+		config->address_length = sizeof(*address);
+	} else {
+		struct sockaddr_in6* address =
+			reinterpret_cast<struct sockaddr_in6*>(&config->address);
+		address->sin6_family = AF_INET6;
+		address->sin6_port = htons(parsed_port);
+		if (inet_pton(AF_INET6, host.c_str(), &address->sin6_addr) != 1)
+			return false;
+		config->address_length = sizeof(*address);
+	}
+
+	return true;
+}
 
 static void test_delay_after_snapshot() {
 	const char* const value =
@@ -604,27 +692,33 @@ static void sigint_cb (struct ev_loop *loop, ev_signal *w, int revents) {
 
 class GTID_Server_Dumper {
 	private:
-	struct sockaddr_in addr;
+	const ListenerConfig& listener;
 	int sd;
-	int port;
 	struct ev_io ev_accept;
 	struct ev_loop *my_loop;
 	struct ev_timer timer;
 	public:
-	GTID_Server_Dumper(int _port) {
-		port = _port;
-		sd = socket(PF_INET, SOCK_STREAM, 0);
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(port);
-		addr.sin_addr.s_addr = INADDR_ANY;
+	GTID_Server_Dumper(const ListenerConfig& _listener) : listener(_listener) {
+		sd = socket(listener.family, SOCK_STREAM, 0);
+		if (sd < 0) {
+			perror("socket");
+			exit(EXIT_FAILURE);
+		}
 		int arg_on = 1;
 		if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (char *)&arg_on, sizeof(arg_on)) == -1) {
 			perror("setsocketopt()");
 			close(sd);
 			exit(EXIT_FAILURE);
 		}
+		if (listener.family == AF_INET6 &&
+		    setsockopt(sd, IPPROTO_IPV6, IPV6_V6ONLY, &arg_on, sizeof(arg_on)) == -1) {
+			perror("setsockopt(IPV6_V6ONLY)");
+			close(sd);
+			exit(EXIT_FAILURE);
+		}
 
-		if (bind(sd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+		if (bind(sd, reinterpret_cast<const struct sockaddr*>(&listener.address),
+		         listener.address_length) != 0) {
 			perror("bind");
 			exit(EXIT_FAILURE);
 		}
@@ -708,7 +802,7 @@ void usage(const char* name) {
 	"-L: Log file path (default " << DEFAULT_ERRORLOG << ").\n"
 	"-P: MySQL port (default " << DEFAULT_MYSQL_PORT << ").\n"
 	"-p: MySQL password.\n"
-	"-l: Listener port (default " << DEFAULT_LISTEN_PORT << ").\n"
+	"-l: Listener address: PORT (IPv4 wildcard), IPV4:PORT, or [IPV6]:PORT (default " << DEFAULT_LISTEN_PORT << ").\n"
 	"-t: Update freqency, in milliseconds. Default is update on every event (0).\n"
 	"-b: Batched updates, 0 or 1 (default 1). Requires ProxySQL v" << PROXYSQL_UPDATE_BATCHING_MIN_VERSION << " or later; set to 0 for older versions.\n"
 	"-f: Run in foreground.\n"
@@ -725,7 +819,7 @@ void usage(const char* name) {
 }
 
 void * server(void *args) {
-	GTID_Server_Dumper serv_dump(listen_port);
+	GTID_Server_Dumper serv_dump(listener_config);
 	return NULL;
 }
 
@@ -736,6 +830,12 @@ int main(int argc, char** argv) {
 	std::string errorstr;
 	unsigned int port = DEFAULT_MYSQL_PORT;
 	TLSOptions tls_options;
+	const std::string default_listener = std::to_string(DEFAULT_LISTEN_PORT);
+	if (!parse_listener_config(default_listener.c_str(),
+	                           &listener_config)) {
+		std::cerr << "cannot initialize default listener" << std::endl;
+		return 1;
+	}
 
 	enum {
 		OPTION_SSL_MODE = 1000,
@@ -775,7 +875,13 @@ int main(int argc, char** argv) {
 				memset(optarg,'x',strlen(optarg));
 				break;
 			case 'P': port = std::stoi(optarg); break;
-			case 'l': listen_port = std::stoi(optarg); break;
+			case 'l':
+				if (!parse_listener_config(optarg, &listener_config)) {
+					std::cerr << "invalid listener address: " << optarg << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
 			case 'L': errorstr = optarg; break;
 			case 't': update_freq_ms = std::stoi(optarg); break;
 			case 'b': update_batching = std::stoi(optarg) ? true : false; break;

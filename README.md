@@ -128,7 +128,7 @@ insecure, test/private-only decision:
 + `-u`: MySQL username
 + `-p`: MySQL password
 + `-P`: MySQL port
-+ `-l`: listening port
++ `-l`: listener address: `PORT` (IPv4 wildcard), `IPV4:PORT`, or `[IPV6]:PORT`; numeric addresses only
 + `-f`: run in foreground - all logging goes to stdout/stderr
 + `-L`: path to log file
 + `-t`: optional update throttling, in milliseconds (default 0 - update on every event)
