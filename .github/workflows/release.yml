@@ -17,12 +17,36 @@ jobs:
   # 1. Build distro packages (.deb/.rpm) and attach them to the release.
   # ---------------------------------------------------------------------------
   package:
-    name: package (${{ matrix.distro }})
-    runs-on: ubuntu-latest
+    name: package (${{ matrix.distro }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        distro: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+        include:
+          - distro: centos9
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: centos10
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian12
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian13
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: ubuntu22
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: ubuntu24
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian13
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - distro: ubuntu24
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out source at release tag
         uses: actions/checkout@v4
@@ -76,7 +100,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ matrix.distro }}
+          name: package-${{ matrix.distro }}-${{ matrix.arch }}
           path: |
             binaries/*.deb
             binaries/*.rpm
@@ -99,13 +123,37 @@ jobs:
   #    Nothing is pushed here; images reach GHCR only after they pass the tests.
   # ---------------------------------------------------------------------------
   container-build:
-    name: container-build (${{ matrix.distro }})
-    runs-on: ubuntu-latest
+    name: container-build (${{ matrix.distro }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: package
     strategy:
       fail-fast: false
       matrix:
-        distro: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+        include:
+          - distro: centos9
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: centos10
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian12
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian13
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: ubuntu22
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: ubuntu24
+            arch: amd64
+            runner: ubuntu-latest
+          - distro: debian13
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - distro: ubuntu24
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out source at release tag
         uses: actions/checkout@v4
@@ -116,23 +164,38 @@ jobs:
       - name: Download package
         uses: actions/download-artifact@v4
         with:
-          name: package-${{ matrix.distro }}
+          name: package-${{ matrix.distro }}-${{ matrix.arch }}
           path: binaries/
 
       - name: Build image (load locally, no push)
         run: make -C docker/images mysqlbinlog-${{ matrix.distro }} IMAGE_PREFIX="${IMAGE_PREFIX}"
 
-      - name: Save image to tarball
+      - name: Create architecture staging tag
+        run: |
+          staging_image="${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${{ matrix.distro }}-${{ matrix.arch }}"
+          docker tag "${IMAGE_PREFIX}:${{ matrix.distro }}" "$staging_image"
+          echo "STAGING_IMAGE=$staging_image" >> "$GITHUB_ENV"
+
+      - name: Remove non-staging tags
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(docker image ls --format '{{.Repository}}:{{.Tag}}' "${IMAGE_PREFIX}")
+          for tag in "${tags[@]}"; do
+            [ "$tag" = "$STAGING_IMAGE" ] || docker image rm "$tag"
+          done
+          docker image inspect "$STAGING_IMAGE"
+
+      - name: Save staged image to tarball
         run: |
           mkdir -p images
-          docker save "${IMAGE_PREFIX}" -o "images/image-${{ matrix.distro }}.tar"
+          docker save "$STAGING_IMAGE" -o "images/image-${{ matrix.distro }}-${{ matrix.arch }}.tar"
           ls -lh images/
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: image-${{ matrix.distro }}
-          path: images/image-${{ matrix.distro }}.tar
+          name: image-${{ matrix.distro }}-${{ matrix.arch }}
+          path: images/image-${{ matrix.distro }}-${{ matrix.arch }}.tar
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -160,6 +223,15 @@ jobs:
 
       - name: Load all built images
         uses: ./.github/actions/load-images
+
+      - name: Restore AMD64 distro tags for TAP
+        run: |
+          set -euo pipefail
+          for distro in centos9 centos10 debian12 debian13 ubuntu22 ubuntu24; do
+            docker tag \
+              "${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${distro}-amd64" \
+              "${IMAGE_PREFIX}:${distro}"
+          done
 
       - name: Build TAP test binaries
         run: |
@@ -214,12 +286,39 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 4. Publish: push the verified images to GHCR.
+  # 4. Verify the native ARM64 runtime images before publishing them.
+  # ---------------------------------------------------------------------------
+  arm64-smoke:
+    name: arm64-smoke (${{ matrix.distro }})
+    runs-on: ubuntu-24.04-arm
+    needs: container-build
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [debian13, ubuntu24]
+    steps:
+      - name: Download ARM64 image
+        uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.distro }}-arm64
+          path: images/
+
+      - name: Load ARM64 image
+        run: docker load -i "images/image-${{ matrix.distro }}-arm64.tar"
+
+      - name: Smoke test ARM64 runtime image
+        run: |
+          docker run --rm --entrypoint sh \
+            "${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${{ matrix.distro }}-arm64" \
+            -ec 'test "$(dpkg --print-architecture)" = arm64; command -v proxysql_binlog_reader; proxysql_binlog_reader -v'
+
+  # ---------------------------------------------------------------------------
+  # 5. Publish: push verified staging images, then create stable manifests.
   # ---------------------------------------------------------------------------
   publish:
     name: publish
     runs-on: ubuntu-latest
-    needs: test-images
+    needs: [test-images, arm64-smoke]
     permissions:
       packages: write
     steps:
@@ -238,8 +337,54 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push all tags
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Push verified staging images
         run: docker push --all-tags "${IMAGE_PREFIX}"
+
+      - name: Create multi-architecture release manifests
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+
+          staging_image() {
+            local distro=$1 arch=$2
+            echo "${IMAGE_PREFIX}:staging-${RELEASE_TAG}-${distro}-${arch}"
+          }
+
+          publish_manifest() {
+            local tag=$1
+            shift
+            docker buildx imagetools create --tag "${IMAGE_PREFIX}:${tag}" "$@"
+          }
+
+          publish_amd64() {
+            local distro=$1
+            shift
+            for tag in "$@"; do
+              publish_manifest "$tag" "$(staging_image "$distro" amd64)"
+            done
+          }
+
+          publish_multiarch() {
+            local distro=$1
+            shift
+            for tag in "$@"; do
+              publish_manifest "$tag" \
+                "$(staging_image "$distro" amd64)" \
+                "$(staging_image "$distro" arm64)"
+            done
+          }
+
+          publish_amd64 centos9 centos9 "${version}-centos9"
+          publish_amd64 centos10 centos10 centos "${version}-centos10" "${version}-centos"
+          publish_amd64 debian12 debian12 "${version}-debian12"
+          publish_multiarch debian13 "${version}" latest debian13 debian "${version}-debian13" "${version}-debian"
+          publish_amd64 ubuntu22 ubuntu22 "${version}-ubuntu22"
+          publish_multiarch ubuntu24 ubuntu24 ubuntu "${version}-ubuntu24" "${version}-ubuntu"
 
       - name: Verify public GHCR access
         run: test/verify-ghcr-public-access.sh "${IMAGE_PREFIX}:latest"

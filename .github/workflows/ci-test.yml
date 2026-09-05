@@ -28,13 +28,37 @@ jobs:
         run: test/verify-runtime-tls-env.sh
 
   packages:
-    name: package (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    name: package (${{ matrix.target }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: workflow-contract
     strategy:
       fail-fast: false
       matrix:
-        target: [centos9, centos10, debian12, debian13, ubuntu22, ubuntu24]
+        include:
+          - target: centos9
+            arch: amd64
+            runner: ubuntu-latest
+          - target: centos10
+            arch: amd64
+            runner: ubuntu-latest
+          - target: debian12
+            arch: amd64
+            runner: ubuntu-latest
+          - target: debian13
+            arch: amd64
+            runner: ubuntu-latest
+          - target: ubuntu22
+            arch: amd64
+            runner: ubuntu-latest
+          - target: ubuntu24
+            arch: amd64
+            runner: ubuntu-latest
+          - target: debian13
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - target: ubuntu24
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out source
         uses: actions/checkout@v4
