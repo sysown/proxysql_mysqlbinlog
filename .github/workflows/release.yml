@@ -11,6 +11,7 @@ permissions:
 
 env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/proxysql-mysqlbinlog
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ jobs:
             echo "no package assets to upload"
             exit 1
           fi
-          gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
 
   # ---------------------------------------------------------------------------
   # 2. Build container images locally and SAVE them as artifacts.
@@ -172,7 +173,7 @@ jobs:
 
       - name: Create architecture staging tag
         run: |
-          staging_image="${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${{ matrix.distro }}-${{ matrix.arch }}"
+          staging_image="${IMAGE_PREFIX}:staging-${RELEASE_TAG}-${{ matrix.distro }}-${{ matrix.arch }}"
           docker tag "${IMAGE_PREFIX}:${{ matrix.distro }}" "$staging_image"
           echo "STAGING_IMAGE=$staging_image" >> "$GITHUB_ENV"
 
@@ -229,7 +230,7 @@ jobs:
           set -euo pipefail
           for distro in centos9 centos10 debian12 debian13 ubuntu22 ubuntu24; do
             docker tag \
-              "${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${distro}-amd64" \
+              "${IMAGE_PREFIX}:staging-${RELEASE_TAG}-${distro}-amd64" \
               "${IMAGE_PREFIX}:${distro}"
           done
 
@@ -309,7 +310,7 @@ jobs:
       - name: Smoke test ARM64 runtime image
         run: |
           docker run --rm --entrypoint sh \
-            "${IMAGE_PREFIX}:staging-${{ github.event.release.tag_name }}-${{ matrix.distro }}-arm64" \
+            "${IMAGE_PREFIX}:staging-${RELEASE_TAG}-${{ matrix.distro }}-arm64" \
             -ec 'test "$(dpkg --print-architecture)" = arm64; command -v proxysql_binlog_reader; proxysql_binlog_reader -v'
 
   # ---------------------------------------------------------------------------
@@ -344,8 +345,6 @@ jobs:
         run: docker push --all-tags "${IMAGE_PREFIX}"
 
       - name: Create multi-architecture release manifests
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"

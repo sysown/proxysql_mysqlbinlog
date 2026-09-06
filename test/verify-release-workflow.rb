@@ -22,6 +22,8 @@ BUILD_TAG = "proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }}"
 BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
+RELEASE_TAG_EXPRESSION = "${{ github.event.release.tag_name }}"
+RELEASE_TAG_VARIABLE = "RELEASE_TAG"
 GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
 GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
 RUNTIME_IMAGE_CONFIGURATION_STEP = "Verify runtime image configuration"
@@ -237,6 +239,49 @@ def assert_release_package_contract(release)
 end
 
 
+def assert_release_tag_is_shell_safe(release)
+  workflow_environment = release.fetch("env")
+  unless workflow_environment.fetch(RELEASE_TAG_VARIABLE) == RELEASE_TAG_EXPRESSION
+    fail("release tag must be supplied as workflow environment data")
+  end
+
+  release.fetch("jobs").each do |job_name, job|
+    Array(job["steps"]).each do |step|
+      command = step.fetch("run", "")
+      if command.include?(RELEASE_TAG_EXPRESSION)
+        fail("#{job_name} must not interpolate the release tag into shell source")
+      end
+    end
+  end
+
+  package_steps = steps(package_job(release, "release"), "release package")
+  upload_command = package_steps.fetch(step_index(package_steps, "Upload package to GitHub release")).fetch("run", "")
+  unless upload_command.include?('gh release upload "$RELEASE_TAG"')
+    fail("release package upload must use the quoted release-tag environment variable")
+  end
+
+  container_steps = steps(release.fetch("jobs").fetch("container-build"), "release container-build")
+  staging_command = container_steps.fetch(step_index(container_steps, "Create architecture staging tag")).fetch("run", "")
+  unless staging_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-${{ matrix.arch }}")
+    fail("release container staging tags must use the release-tag environment variable")
+  end
+
+  test_steps = steps(release.fetch("jobs").fetch("test-images"), "release test-images")
+  restore_command = test_steps.fetch(step_index(test_steps, "Restore AMD64 distro tags for TAP")).fetch("run", "")
+  unless restore_command.include?("staging-${RELEASE_TAG}-${distro}-amd64")
+    fail("release TAP tag restoration must use the release-tag environment variable")
+  end
+
+  smoke_steps = steps(release.fetch("jobs").fetch("arm64-smoke"), "release ARM64 smoke")
+  smoke_command = smoke_steps.fetch(step_index(smoke_steps, "Smoke test ARM64 runtime image")).fetch("run", "")
+  unless smoke_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-arm64")
+    fail("release ARM64 smoke image must use the release-tag environment variable")
+  end
+rescue KeyError => error
+  fail("release tag handling is incomplete: #{error.message}")
+end
+
+
 def assert_release_container_contract(release)
   job = release.fetch("jobs").fetch("container-build")
   assert_build_matrix(job.fetch("strategy").fetch("matrix"), EXPECTED_RELEASE_BUILD_MATRIX,
@@ -248,7 +293,7 @@ def assert_release_container_contract(release)
 
   stage_index = step_index(container_steps, "Create architecture staging tag")
   stage_command = container_steps[stage_index].fetch("run", "")
-  unless stage_command.include?("staging-${{ github.event.release.tag_name }}-${{ matrix.distro }}-${{ matrix.arch }}")
+  unless stage_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-${{ matrix.arch }}")
     fail("release container build must create a unique architecture staging tag")
   end
 
@@ -330,7 +375,7 @@ def assert_release_test_images_contract(release)
   tag_index = step_index(test_steps, "Restore AMD64 distro tags for TAP")
   tag_command = test_steps[tag_index].fetch("run", "")
   unless tag_command.include?("for distro in #{EXPECTED_DISTROS.join(" ")}; do") &&
-         tag_command.include?("staging-${{ github.event.release.tag_name }}-${distro}-amd64") &&
+         tag_command.include?("staging-${RELEASE_TAG}-${distro}-amd64") &&
          tag_command.include?("${IMAGE_PREFIX}:${distro}")
     fail("release TAP tests must restore every AMD64 distro image tag")
   end
@@ -476,6 +521,7 @@ release = load_workflow(release_path)
 ci = load_workflow(ci_path)
 
 assert_release_package_contract(release)
+assert_release_tag_is_shell_safe(release)
 assert_release_container_contract(release)
 assert_release_test_images_contract(release)
 assert_release_arm64_smoke_contract(release)
