@@ -3,16 +3,37 @@
 require "yaml"
 
 EXPECTED_DISTROS = %w[centos9 centos10 debian12 debian13 ubuntu22 ubuntu24].freeze
+AMD64_RUNNER = "ubuntu-latest"
+ARM64_RUNNER = "ubuntu-24.04-arm"
+EXPECTED_RELEASE_BUILD_MATRIX = [
+  {"distro" => "centos9", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "centos10", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "debian12", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "debian13", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "ubuntu22", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "ubuntu24", "arch" => "amd64", "runner" => AMD64_RUNNER},
+  {"distro" => "debian13", "arch" => "arm64", "runner" => ARM64_RUNNER},
+  {"distro" => "ubuntu24", "arch" => "arm64", "runner" => ARM64_RUNNER}
+].freeze
+EXPECTED_CI_PACKAGE_MATRIX = EXPECTED_RELEASE_BUILD_MATRIX.map do |entry|
+  {"target" => entry.fetch("distro"), "arch" => entry.fetch("arch"), "runner" => entry.fetch("runner")}
+end.freeze
 BUILD_TAG = "proxysql/proxysql-mysqlbinlog:build-${{ matrix.distro }}"
 BUILD_FILE = "docker/build/build-${{ matrix.distro }}/Dockerfile"
 PACKAGE_COMMAND = "make ${{ matrix.distro }}"
 CHECKER_COMMAND = "ruby test/verify-release-workflow.rb"
+RELEASE_TAG_EXPRESSION = "${{ github.event.release.tag_name }}"
+RELEASE_TAG_VARIABLE = "RELEASE_TAG"
 GHCR_ACCESS_CHECKER_STEP = "Verify GHCR access checker"
 GHCR_ACCESS_CHECKER_COMMAND = "test/verify-ghcr-public-access-test.sh"
 RUNTIME_IMAGE_CONFIGURATION_STEP = "Verify runtime image configuration"
 RUNTIME_IMAGE_CONFIGURATION_COMMAND = "test/verify-runtime-tls-env.sh"
+LIBDAEMON_ARM64_CONFIGURATION_STEP = "Verify libdaemon ARM64 bootstrap"
+LIBDAEMON_ARM64_CONFIGURATION_COMMAND = "test/verify-libdaemon-aarch64-config.sh"
 PACKAGE_VERIFIER_COMMAND = 'test/verify-package-contents.sh "${packages[0]}"'
 PACKAGE_METADATA_VERIFIER_COMMAND = 'test/verify-package-dependencies.sh "${packages[0]}"'
+PUSH_STAGING_IMAGES_STEP = "Push verified staging images"
+CREATE_MANIFESTS_STEP = "Create multi-architecture release manifests"
 PUBLIC_ACCESS_STEP = "Verify public GHCR access"
 PUBLIC_ACCESS_COMMAND = 'test/verify-ghcr-public-access.sh "${IMAGE_PREFIX}:latest"'
 RUNNER_IMAGE = "proxysql/proxysql-mysqlbinlog:build-ubuntu24"
@@ -134,6 +155,12 @@ def assert_matrix(actual, label)
 end
 
 
+def assert_build_matrix(actual, expected, label)
+  actual_include = actual.is_a?(Hash) ? actual["include"] : nil
+  fail("#{label} is #{actual.inspect}, expected include matrix #{expected.inspect}") unless actual_include == expected
+end
+
+
 def assert_single_package_enumeration(command, label, verifier_command)
   lines = command.lines.map(&:strip).reject(&:empty?)
   nullglob_index = line_index(lines, "shopt -s nullglob", label)
@@ -167,7 +194,9 @@ end
 
 def assert_release_package_contract(release)
   job = package_job(release, "release")
-  assert_matrix(matrix(job, "distro", "release package"), "release package matrix")
+  assert_build_matrix(job.fetch("strategy").fetch("matrix"), EXPECTED_RELEASE_BUILD_MATRIX,
+                      "release package matrix")
+  fail("release package job must select its native runner from the matrix") unless job["runs-on"] == "${{ matrix.runner }}"
   package_steps = steps(job, "release package")
 
   build_indexes = package_steps.each_index.select do |index|
@@ -204,22 +233,115 @@ def assert_release_package_contract(release)
   unless package_indexes.first < verify_index && verify_index < metadata_index && metadata_index < list_index && metadata_index < upload_artifact_index && metadata_index < upload_release_index
     fail("release package contents and metadata must be verified after packaging and before artifact handling")
   end
+
+  artifact = package_steps[upload_artifact_index]
+  fail("release package artifacts must retain their architecture") unless artifact["with"].fetch("name") == "package-${{ matrix.distro }}-${{ matrix.arch }}"
+end
+
+
+def assert_release_tag_is_shell_safe(release)
+  workflow_environment = release.fetch("env")
+  unless workflow_environment.fetch(RELEASE_TAG_VARIABLE) == RELEASE_TAG_EXPRESSION
+    fail("release tag must be supplied as workflow environment data")
+  end
+
+  release.fetch("jobs").each do |job_name, job|
+    Array(job["steps"]).each do |step|
+      command = step.fetch("run", "")
+      if command.include?(RELEASE_TAG_EXPRESSION)
+        fail("#{job_name} must not interpolate the release tag into shell source")
+      end
+    end
+  end
+
+  package_steps = steps(package_job(release, "release"), "release package")
+  upload_command = package_steps.fetch(step_index(package_steps, "Upload package to GitHub release")).fetch("run", "")
+  unless upload_command.include?('gh release upload "$RELEASE_TAG"')
+    fail("release package upload must use the quoted release-tag environment variable")
+  end
+
+  container_steps = steps(release.fetch("jobs").fetch("container-build"), "release container-build")
+  staging_command = container_steps.fetch(step_index(container_steps, "Create architecture staging tag")).fetch("run", "")
+  unless staging_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-${{ matrix.arch }}")
+    fail("release container staging tags must use the release-tag environment variable")
+  end
+
+  test_steps = steps(release.fetch("jobs").fetch("test-images"), "release test-images")
+  restore_command = test_steps.fetch(step_index(test_steps, "Restore AMD64 distro tags for TAP")).fetch("run", "")
+  unless restore_command.include?("staging-${RELEASE_TAG}-${distro}-amd64")
+    fail("release TAP tag restoration must use the release-tag environment variable")
+  end
+
+  smoke_steps = steps(release.fetch("jobs").fetch("arm64-smoke"), "release ARM64 smoke")
+  smoke_command = smoke_steps.fetch(step_index(smoke_steps, "Smoke test ARM64 runtime image")).fetch("run", "")
+  unless smoke_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-arm64")
+    fail("release ARM64 smoke image must use the release-tag environment variable")
+  end
+rescue KeyError => error
+  fail("release tag handling is incomplete: #{error.message}")
 end
 
 
 def assert_release_container_contract(release)
   job = release.fetch("jobs").fetch("container-build")
-  assert_matrix(matrix(job, "distro", "release container-build"), "release container-build matrix")
+  assert_build_matrix(job.fetch("strategy").fetch("matrix"), EXPECTED_RELEASE_BUILD_MATRIX,
+                      "release container-build matrix")
+  fail("release container-build job must select its native runner from the matrix") unless job["runs-on"] == "${{ matrix.runner }}"
+  container_steps = steps(job, "release container-build")
+  download = container_steps.fetch(step_index(container_steps, "Download package"))
+  fail("release container build must download the matching architecture package") unless download["with"].fetch("name") == "package-${{ matrix.distro }}-${{ matrix.arch }}"
+
+  stage_index = step_index(container_steps, "Create architecture staging tag")
+  stage_command = container_steps[stage_index].fetch("run", "")
+  unless stage_command.include?("staging-${RELEASE_TAG}-${{ matrix.distro }}-${{ matrix.arch }}")
+    fail("release container build must create a unique architecture staging tag")
+  end
+
+  remove_index = step_index(container_steps, "Remove non-staging tags")
+  remove_command = container_steps[remove_index].fetch("run", "")
+  unless remove_command.include?("docker image ls --format") &&
+         remove_command.include?("$STAGING_IMAGE") &&
+         remove_command.include?("docker image rm")
+    fail("release container build must remove ordinary aliases before saving the staging artifact")
+  end
+
+  save_index = step_index(container_steps, "Save staged image to tarball")
+  save_command = container_steps[save_index].fetch("run", "")
+  fail("release container build must save only the architecture staging tag") unless save_command.include?("docker save \"$STAGING_IMAGE\"")
+  unless stage_index < remove_index && remove_index < save_index
+    fail("release container build must remove ordinary aliases before saving the staging artifact")
+  end
+  artifact = container_steps.fetch(step_index(container_steps, "Upload image artifact"))
+  fail("release image artifacts must retain their architecture") unless artifact["with"].fetch("name") == "image-${{ matrix.distro }}-${{ matrix.arch }}"
 end
 
 
 def assert_release_publish_contract(release)
   publish_steps = steps(release.fetch("jobs").fetch("publish"), "release publish")
-  push_index = step_index(publish_steps, "Push all tags")
+  buildx_index = step_index(publish_steps, "Set up Docker Buildx")
+  push_index = step_index(publish_steps, PUSH_STAGING_IMAGES_STEP)
+  manifest_index = step_index(publish_steps, CREATE_MANIFESTS_STEP)
+  manifest_command = publish_steps[manifest_index].fetch("run", "")
+  fail("release publish must compose manifests with docker buildx imagetools") unless manifest_command.include?("docker buildx imagetools create")
+  unless manifest_command.include?("staging-${RELEASE_TAG}-${distro}-${arch}") &&
+         manifest_command.include?("$(staging_image \"$distro\" amd64)") &&
+         manifest_command.include?("$(staging_image \"$distro\" arm64)")
+    fail("release publish must compose manifests from architecture staging images")
+  end
+  %w[debian13 ubuntu24].each do |distro|
+    unless manifest_command.include?("publish_multiarch #{distro}")
+      fail("release publish must compose #{distro} from native AMD64 and ARM64 staging images")
+    end
+  end
+  fail("release publish must retain the Debian latest alias") unless manifest_command.include?("latest")
+  fail("release publish must retain the Debian family alias") unless manifest_command.include?("debian")
+  fail("release publish must retain the Ubuntu family alias") unless manifest_command.include?("ubuntu")
   public_access_index = step_index(publish_steps, PUBLIC_ACCESS_STEP)
   public_access_command = publish_steps[public_access_index].fetch("run", "")
   fail("release public-access verification must run #{PUBLIC_ACCESS_COMMAND.inspect}") unless public_access_command == PUBLIC_ACCESS_COMMAND
-  fail("release public-access verification must run after pushing all tags") unless push_index < public_access_index
+  unless buildx_index < push_index && push_index < manifest_index && manifest_index < public_access_index
+    fail("release publish must push staging images, create manifests, then verify public access")
+  end
 end
 
 
@@ -249,8 +371,33 @@ def assert_release_test_images_contract(release)
   unless checkout_indexes.first < runner_build_indexes.first && runner_build_indexes.first < tap_index
     fail("release test-images must check out source before building RUNNER_IMG before TAP compilation")
   end
+
+  tag_index = step_index(test_steps, "Restore AMD64 distro tags for TAP")
+  tag_command = test_steps[tag_index].fetch("run", "")
+  unless tag_command.include?("for distro in #{EXPECTED_DISTROS.join(" ")}; do") &&
+         tag_command.include?("staging-${RELEASE_TAG}-${distro}-amd64") &&
+         tag_command.include?("${IMAGE_PREFIX}:${distro}")
+    fail("release TAP tests must restore every AMD64 distro image tag")
+  end
+  fail("release TAP tests must restore image tags before compiling the TAP suite") unless tag_index < tap_index
 rescue KeyError => error
   fail("release test-images job structure is incomplete: #{error.message}")
+end
+
+
+def assert_release_arm64_smoke_contract(release)
+  job = release.fetch("jobs").fetch("arm64-smoke")
+  fail("release ARM64 smoke job must use the native ARM64 runner") unless job["runs-on"] == ARM64_RUNNER
+  fail("release ARM64 smoke job must depend on container builds") unless job["needs"] == "container-build"
+  fail("release ARM64 smoke matrix must cover only current Debian and Ubuntu images") unless matrix(job, "distro", "release ARM64 smoke") == %w[debian13 ubuntu24]
+  smoke_steps = steps(job, "release ARM64 smoke")
+  download = smoke_steps.fetch(step_index(smoke_steps, "Download ARM64 image"))
+  fail("release ARM64 smoke must download the matching ARM64 image artifact") unless download["with"].fetch("name") == "image-${{ matrix.distro }}-arm64"
+  smoke = smoke_steps.fetch(step_index(smoke_steps, "Smoke test ARM64 runtime image"))
+  smoke_command = smoke.fetch("run", "")
+  unless smoke_command.include?("dpkg --print-architecture") && smoke_command.include?("arm64") && smoke_command.include?("proxysql_binlog_reader -v")
+    fail("release ARM64 smoke must verify the native package architecture and reader executable")
+  end
 end
 
 
@@ -283,7 +430,9 @@ def assert_ci_contract(ci)
 
   jobs = ci.fetch("jobs")
   packages_job = jobs.fetch("packages")
-  assert_matrix(matrix(packages_job, "target", "CI packages"), "CI packages matrix")
+  assert_build_matrix(packages_job.fetch("strategy").fetch("matrix"), EXPECTED_CI_PACKAGE_MATRIX,
+                      "CI packages matrix")
+  fail("CI packages must select the native runner from the matrix") unless packages_job["runs-on"] == "${{ matrix.runner }}"
   package_steps = steps(packages_job, "CI packages")
   package_verify_index = step_index(package_steps, "Verify package contents")
   assert_single_package_enumeration(package_steps[package_verify_index].fetch("run", ""), "CI package verification",
@@ -311,6 +460,15 @@ def assert_ci_contract(ci)
   end
   unless checkout_index < runtime_image_configuration_index && ghcr_access_checker_index < runtime_image_configuration_index
     fail("workflow-contract must check out source and verify GHCR access before verifying runtime image configuration")
+  end
+
+  libdaemon_arm64_configuration_index = step_index(contract_steps, LIBDAEMON_ARM64_CONFIGURATION_STEP)
+  libdaemon_arm64_configuration_command = contract_steps[libdaemon_arm64_configuration_index].fetch("run", "")
+  unless libdaemon_arm64_configuration_command == LIBDAEMON_ARM64_CONFIGURATION_COMMAND
+    fail("workflow-contract libdaemon ARM64 bootstrap verification must run #{LIBDAEMON_ARM64_CONFIGURATION_COMMAND.inspect}")
+  end
+  unless runtime_image_configuration_index < libdaemon_arm64_configuration_index
+    fail("workflow-contract must verify runtime image configuration before the libdaemon ARM64 bootstrap")
   end
 
   checker_steps = contract_steps.each_index.select do |index|
@@ -363,7 +521,9 @@ release = load_workflow(release_path)
 ci = load_workflow(ci_path)
 
 assert_release_package_contract(release)
+assert_release_tag_is_shell_safe(release)
 assert_release_container_contract(release)
 assert_release_test_images_contract(release)
+assert_release_arm64_smoke_contract(release)
 assert_release_publish_contract(release)
 assert_ci_contract(ci)

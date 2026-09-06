@@ -46,6 +46,9 @@ Prebuilt v2.3 packages for each supported distro are attached to every release:
 - proxysql-mysqlbinlog_2.3-ubuntu24_amd64.deb
 - proxysql-mysqlbinlog_2.3-ubuntu22_amd64.deb
 
+Every current release also contains native ARM64 packages for Debian 13 and
+Ubuntu 24.
+
 https://github.com/sysown/proxysql_mysqlbinlog/releases/latest
 
 ### Containers
@@ -58,6 +61,10 @@ Ready to use v2.3 docker images, published to the GitHub Container Registry (GHC
 - 2.3-debian12 == debian12
 - 2.3-ubuntu24 == ubuntu24 == ubuntu
 - 2.3-ubuntu22 == ubuntu22
+
+The Debian 13 (`latest`, `debian`) and Ubuntu 24 (`ubuntu`) image tags are
+multi-architecture manifests for `linux/amd64` and `linux/arm64`. The older
+distro image tags remain AMD64-only.
 
 Semantic tag versioning is used, ommited version implies latest.
 
