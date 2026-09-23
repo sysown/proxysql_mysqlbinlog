@@ -276,7 +276,12 @@ void MariaDBReplicationClient::stream_events(
 		if (event->event_type == GTID_LOG_EVENT && on_gtid) {
 			on_gtid(mysql_uuid_from_bytes(
 			            reinterpret_cast<const unsigned char*>(event->event.gtid_log.source_id)),
-		        event->event.gtid_log.sequence_nr);
+			        event->event.gtid_log.sequence_nr);
+		}
+		if (event->event_type == GTID_EVENT && on_gtid) {
+			const uint32_t domain = event->event.gtid.domain_id;
+			const uint64_t seq = event->event.gtid.sequence_nr;
+			on_gtid(std::to_string(domain), seq);
 		}
 	}
 	mariadb_free_rpl_event(event);
