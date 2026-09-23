@@ -237,6 +237,8 @@ void MariaDBReplicationClient::open_stream() {
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
+	if (mysql_query(impl_->mysql, "SET @mariadb_slave_capability=4"))
+		throw connector_error("cannot set MariaDB replica capability", impl_->mysql);
 
 	impl_->rpl = mariadb_rpl_init(impl_->mysql);
 	if (!impl_->rpl)

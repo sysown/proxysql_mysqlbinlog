@@ -133,4 +133,52 @@ for v in $MYSQL_VERSIONS; do
   done
 done
 
+# ---------------------------------------------------------------------
+# MariaDB pass. Runs after the MySQL matrix when MARIADB_PORT is set or
+# TCP 3311 on MYSQL_HOST is reachable. Official mariadb images may not
+# match the MySQL sandbox TLS policy, so SSL defaults to DISABLED.
+# If 3311 is down, skip this pass without failing the suite.
+# ---------------------------------------------------------------------
+mariadb_available() {
+  if [ -n "${MARIADB_PORT:-}" ]; then
+    return 0
+  fi
+  timeout 1 bash -c "echo >/dev/tcp/${MYSQL_HOST}/3311" >/dev/null 2>&1
+}
+
+if mariadb_available; then
+  export MYSQL_VERSION=mdb11
+  if [ -n "${MARIADB_HOST:-}" ]; then
+    export MYSQL_HOST="$MARIADB_HOST"
+  fi
+  export MYSQL_PORT=${MARIADB_PORT:-3311}
+  export MYSQL_SSL_MODE=${MARIADB_SSL_MODE:-DISABLED}
+  export MYSQL_SSL_VERIFY_SERVER_CERT="${MARIADB_SSL_VERIFY_SERVER_CERT:-0}"
+  echo "### mariadb=$MYSQL_VERSION host=$MYSQL_HOST port=$MYSQL_PORT ssl=$MYSQL_SSL_MODE"
+
+  per_version_dir=""
+  if [ -n "${BINLOG_READER_LOG_DIR:-}" ]; then
+    per_version_dir="${BINLOG_READER_LOG_DIR}/mysql-${MYSQL_VERSION}"
+    mkdir -p "$per_version_dir"
+    export BINLOG_READER_LOG_FILE="${per_version_dir}/reader.log"
+  fi
+
+  for t in tests/test_mariadb_gtid-t tests/test_mariadb_gtid_stream-t; do
+    [ -x "$t" ] || continue
+    tname=$(basename "$t")
+    echo "# $t"
+    if [ -n "$per_version_dir" ]; then
+      if ! "$t" 2>&1 | tee "${per_version_dir}/${tname}.log"; then
+        overall_rc=1
+      fi
+    else
+      if ! "$t"; then
+        overall_rc=1
+      fi
+    fi
+  done
+else
+  echo "### skipping MariaDB pass (port ${MARIADB_PORT:-3311} not reachable)"
+fi
+
 exit "$overall_rc"
