@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(16);
+	plan(28);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -75,6 +75,34 @@ int main() {
 	ok(!parse_mysql_snapshot_position("mysql-bin.000001", overflowing_position.c_str(),
 					  &snapshot_position),
 	   "rejects an overflowing binary log position");
+
+	GTID_Set mdb;
+	ok(parse_mariadb_gtid_executed("0-1-270", &mdb), "parse MariaDB single GTID");
+	ok(mdb.has_gtid("0", 1) && mdb.has_gtid("0", 270) && !mdb.has_gtid("0", 271),
+	   "MariaDB snapshot is watermark [1, seq]");
+	ok(!mdb.has_gtid("1", 270), "other domain is absent");
+
+	GTID_Set mdb_set;
+	ok(parse_mariadb_gtid_executed("0-1-270,1-2-50", &mdb_set)
+	       && mdb_set.has_gtid("0", 100) && mdb_set.has_gtid("1", 50),
+	   "parse MariaDB multi-domain set");
+
+	GTID_Set combined;
+	ok(parse_gtid_executed("0-1-270", &combined) && combined.has_gtid("0", 270),
+	   "combined parser accepts MariaDB");
+	ok(parse_gtid_executed(
+	       "24684d2a-9412-11ef-8c99-0242ac120002:1-3", &combined)
+	       && combined.has_gtid("24684d2a941211ef8c990242ac120002", 3),
+	   "combined parser still accepts MySQL");
+
+	GTID_Set bad;
+	ok(!parse_mariadb_gtid_executed("0-1", &bad), "reject two-field MariaDB");
+	ok(!parse_mariadb_gtid_executed("0-1-0", &bad), "reject sequence 0");
+	ok(!parse_mariadb_gtid_executed("00-1-1", &bad), "reject leading zeros");
+	ok(!parse_mariadb_gtid_executed("0-1-1:2", &bad), "reject colon in MariaDB");
+	ok(!parse_mariadb_gtid_executed("", &bad), "reject empty MariaDB set");
+	ok(!parse_mariadb_gtid_executed("0-1-270,not-a-gtid", &bad),
+	   "reject mixed junk");
 
 	return exit_status();
 }

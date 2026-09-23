@@ -74,6 +74,43 @@ bool parse_positive_trxid(const std::string& input, trxid_t* out) {
 	return true;
 }
 
+bool is_unsigned_decimal_no_leading_zeros(const std::string& input) {
+	if (input.empty())
+		return false;
+	if (input.size() > 1 && input[0] == '0')
+		return false;
+	for (char c : input) {
+		if (!std::isdigit(static_cast<unsigned char>(c)))
+			return false;
+	}
+	return true;
+}
+
+bool parse_mariadb_gtid_token(const std::string& token, GTID_Set* set) {
+	const size_t first = token.find('-');
+	if (first == std::string::npos)
+		return false;
+	const size_t second = token.find('-', first + 1);
+	if (second == std::string::npos || token.find('-', second + 1) != std::string::npos)
+		return false;
+	if (first == 0 || second == first + 1 || second == token.size() - 1)
+		return false;
+
+	const std::string domain = token.substr(0, first);
+	const std::string server = token.substr(first + 1, second - first - 1);
+	const std::string sequence = token.substr(second + 1);
+	if (!is_unsigned_decimal_no_leading_zeros(domain) ||
+	    !is_unsigned_decimal_no_leading_zeros(server) ||
+	    !is_unsigned_decimal_no_leading_zeros(sequence))
+		return false;
+
+	trxid_t seq = 0;
+	if (!parse_positive_trxid(sequence, &seq))
+		return false;
+	set->add(domain, trxid_t(1), seq);
+	return true;
+}
+
 bool add_interval(const std::string& input, const std::string& uuid, GTID_Set* set) {
 	const size_t dash = input.find('-');
 	if (dash == std::string::npos) {
@@ -154,6 +191,35 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out) {
 
 	*out = parsed;
 	return true;
+}
+
+bool parse_mariadb_gtid_executed(const std::string& encoded, GTID_Set* out) {
+	if (!out || encoded.empty())
+		return false;
+
+	GTID_Set parsed;
+	size_t set_start = 0;
+	while (set_start < encoded.size()) {
+		const size_t set_end = encoded.find(',', set_start);
+		const std::string entry = trim_separator_whitespace(encoded.substr(
+		    set_start, set_end == std::string::npos ? std::string::npos : set_end - set_start));
+		if (!parse_mariadb_gtid_token(entry, &parsed))
+			return false;
+		if (set_end == std::string::npos)
+			break;
+		set_start = set_end + 1;
+		if (set_start == encoded.size())
+			return false;
+	}
+
+	*out = parsed;
+	return true;
+}
+
+bool parse_gtid_executed(const std::string& encoded, GTID_Set* out) {
+	if (encoded.find(':') != std::string::npos)
+		return parse_mysql_gtid_executed(encoded, out);
+	return parse_mariadb_gtid_executed(encoded, out);
 }
 
 bool parse_mysql_snapshot_position(const char* filename, const char* encoded_position,
