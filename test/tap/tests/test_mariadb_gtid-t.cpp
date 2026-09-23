@@ -120,8 +120,8 @@ int main() {
 	   "malformed MySQL fifth column does not fall through");
 	ok(snapshot_gtid_set(nullptr, "0-1-270", &s) && s.has_gtid("0", 270),
 	   "missing fifth column uses MariaDB binlog pos");
-	ok(snapshot_gtid_set("", "0-1-270", &s) && s.has_gtid("0", 100),
-	   "empty fifth column uses MariaDB binlog pos");
+	ok(snapshot_gtid_set("", "0-1-270", &s) && s.map.empty(),
+	   "empty fifth column is empty MySQL set");
 	ok(!snapshot_gtid_set(nullptr, "", &s), "missing both fails");
 
 	return exit_status();

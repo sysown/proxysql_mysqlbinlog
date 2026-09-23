@@ -201,25 +201,24 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 		throw std::runtime_error(std::string(query) +
 		                         " returned an invalid binary log Position");
 
-	const char* fifth = (nfields >= 5) ? row[4] : nullptr;
-	std::string mariadb_pos;
-	if (!fifth || !*fifth) {
+	GTID_Set set;
+	if (nfields >= 5) {
+		const char* fifth = row[4] ? row[4] : "";
+		if (!snapshot_gtid_set(fifth, "", &set))
+			throw std::runtime_error(std::string(query) +
+			                         " returned an invalid Executed_Gtid_Set");
+	} else {
 		if (mysql_query(impl_->mysql, "SELECT @@GLOBAL.gtid_binlog_pos"))
 			throw connector_error("cannot read gtid_binlog_pos", impl_->mysql);
 		Result pos_result(mysql_store_result(impl_->mysql));
 		if (!pos_result.get())
 			throw connector_error("cannot store gtid_binlog_pos", impl_->mysql);
 		MYSQL_ROW pos_row = mysql_fetch_row(pos_result.get());
+		std::string mariadb_pos;
 		if (pos_row && pos_row[0])
 			mariadb_pos = pos_row[0];
-	}
-
-	GTID_Set set;
-	if (!snapshot_gtid_set(fifth, mariadb_pos, &set)) {
-		if (fifth && *fifth)
-			throw std::runtime_error(std::string(query) +
-			                         " returned an invalid Executed_Gtid_Set");
-		throw std::runtime_error("invalid gtid_binlog_pos");
+		if (!snapshot_gtid_set(nullptr, mariadb_pos, &set))
+			throw std::runtime_error("invalid gtid_binlog_pos");
 	}
 
 	impl_->snapshot_filename = row[0];

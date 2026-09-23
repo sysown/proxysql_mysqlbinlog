@@ -229,7 +229,7 @@ bool snapshot_gtid_set(const char* executed_gtid_set_or_null,
                        GTID_Set* out) {
 	if (!out)
 		return false;
-	if (executed_gtid_set_or_null && *executed_gtid_set_or_null)
+	if (executed_gtid_set_or_null)
 		return parse_mysql_gtid_executed(executed_gtid_set_or_null, out);
 	return parse_mariadb_gtid_executed(mariadb_binlog_pos, out);
 }
