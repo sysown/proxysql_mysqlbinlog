@@ -107,7 +107,9 @@ bool parse_mariadb_gtid_token(const std::string& token, GTID_Set* set) {
 	trxid_t seq = 0;
 	if (!parse_positive_trxid(sequence, &seq))
 		return false;
+	const uint32_t server_id = static_cast<uint32_t>(std::strtoul(server.c_str(), nullptr, 10));
 	set->add(domain, trxid_t(1), seq);
+	set->set_server_id(domain, server_id);
 	return true;
 }
 

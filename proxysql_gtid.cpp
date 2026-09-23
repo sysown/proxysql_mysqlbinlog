@@ -139,12 +139,14 @@ GTID_Set::GTID_Set() {}
 GTID_Set GTID_Set::copy() {
 	GTID_Set cp;
 	cp.map = map;
+	cp.last_server_id = last_server_id;
 	return cp;
 }
 
 // Clears all GTID set entries.
 void GTID_Set::clear() {
 	map.clear();
+	last_server_id.clear();
 }
 
 // Adds a new trxid interval for a given UUID. Returns true if the set was modified, false otherwise.
@@ -218,6 +220,18 @@ bool GTID_Set::add(const std::string& uuid, const std::string& s) {
 	return add(uuid, TrxId_Interval(s));
 }
 
+void GTID_Set::set_server_id(const std::string& id, uint32_t server_id) {
+	last_server_id[id] = server_id;
+}
+
+uint32_t GTID_Set::get_server_id(const std::string& id) const {
+	auto it = last_server_id.find(id);
+	if (it == last_server_id.end()) {
+		return 0;
+	}
+	return it->second;
+}
+
 // Evaluates whether a trxid is present in any of the intervals for a given UUID.
 const bool GTID_Set::has_gtid(const std::string& uuid, const trxid_t trxid) {
 	auto it = map.find(uuid);
@@ -241,14 +255,50 @@ const std::string GTID_Set::to_string(void) {
 		if (!first_uuid) {
 			out << ",";
 		}
-		std::string uuid = it->first;
-		uuid.insert(8,"-");
-		uuid.insert(13,"-");
-		uuid.insert(18,"-");
-		uuid.insert(23,"-");
-		out << uuid;
+		if (it->first.size()==32) {
+			std::string uuid = it->first;
+			uuid.insert(8,"-");
+			uuid.insert(13,"-");
+			uuid.insert(18,"-");
+			uuid.insert(23,"-");
+			out << uuid;
+		} else {
+			out << it->first;
+		}
 		for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
 			out << ":" << itr->to_string();
+		}
+		first_uuid = false;
+	}
+
+	return out.str();
+}
+
+const std::string GTID_Set::to_display_string(void) {
+	std::stringstream out;
+	bool first_uuid = true;
+	for (auto it=map.begin(); it!=map.end(); ++it) {
+		if (!first_uuid) {
+			out << ",";
+		}
+		if (it->first.size()==32) {
+			std::string uuid = it->first;
+			uuid.insert(8,"-");
+			uuid.insert(13,"-");
+			uuid.insert(18,"-");
+			uuid.insert(23,"-");
+			out << uuid;
+			for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+				out << ":" << itr->to_string();
+			}
+		} else {
+			trxid_t max_end = 0;
+			for (auto itr = it->second.begin(); itr != it->second.end(); ++itr) {
+				if (itr->end > max_end) {
+					max_end = itr->end;
+				}
+			}
+			out << it->first << "-" << get_server_id(it->first) << "-" << max_end;
 		}
 		first_uuid = false;
 	}

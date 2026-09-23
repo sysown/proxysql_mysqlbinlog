@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(28);
+	plan(31);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -103,6 +103,14 @@ int main() {
 	ok(!parse_mariadb_gtid_executed("", &bad), "reject empty MariaDB set");
 	ok(!parse_mariadb_gtid_executed("0-1-270,not-a-gtid", &bad),
 	   "reject mixed junk");
+
+	GTID_Set wire;
+	parse_mariadb_gtid_executed("0-1-270", &wire);
+	ok(wire.to_string() == "0:1-270", "wire to_string is domain:1-seq");
+	ok(wire.to_display_string() == "0-1-270",
+	   "display string keeps MariaDB native form");
+	wire.add("0", trxid_t(271));
+	ok(wire.to_string() == "0:1-271", "incremental seq extends watermark");
 
 	return exit_status();
 }
