@@ -13,6 +13,9 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out);
 
 bool parse_mariadb_gtid_executed(const std::string& encoded, GTID_Set* out);
 bool parse_gtid_executed(const std::string& encoded, GTID_Set* out);
+bool snapshot_gtid_set(const char* executed_gtid_set_or_null,
+                       const std::string& mariadb_binlog_pos,
+                       GTID_Set* out);
 
 /** Validate a binary log snapshot File and decimal Position. */
 bool parse_mysql_snapshot_position(const char* filename, const char* encoded_position,

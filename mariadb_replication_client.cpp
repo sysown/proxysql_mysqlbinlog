@@ -184,13 +184,14 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 	Result result(mysql_store_result(impl_->mysql));
 	if (!result.get())
 		throw connector_error("cannot store binary log status", impl_->mysql);
-	if (mysql_num_fields(result.get()) < 5)
+	const unsigned int nfields = mysql_num_fields(result.get());
+	if (nfields < 2)
 		throw std::runtime_error(std::string(query) +
-		                         " returned fewer than five columns");
+		                         " returned fewer than two columns");
 	MYSQL_ROW row = mysql_fetch_row(result.get());
-	if (!row || !row[0] || !row[1] || !row[4])
+	if (!row || !row[0] || !row[1])
 		throw std::runtime_error(std::string(query) +
-		                         " returned no File, Position, or Executed_Gtid_Set");
+		                         " returned no File or Position");
 	if (!*row[0])
 		throw std::runtime_error(std::string(query) +
 		                         " returned an empty binary log File");
@@ -200,10 +201,26 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 		throw std::runtime_error(std::string(query) +
 		                         " returned an invalid binary log Position");
 
+	const char* fifth = (nfields >= 5) ? row[4] : nullptr;
+	std::string mariadb_pos;
+	if (!fifth || !*fifth) {
+		if (mysql_query(impl_->mysql, "SELECT @@GLOBAL.gtid_binlog_pos"))
+			throw connector_error("cannot read gtid_binlog_pos", impl_->mysql);
+		Result pos_result(mysql_store_result(impl_->mysql));
+		if (!pos_result.get())
+			throw connector_error("cannot store gtid_binlog_pos", impl_->mysql);
+		MYSQL_ROW pos_row = mysql_fetch_row(pos_result.get());
+		if (pos_row && pos_row[0])
+			mariadb_pos = pos_row[0];
+	}
+
 	GTID_Set set;
-	if (!parse_mysql_gtid_executed(row[4], &set))
-		throw std::runtime_error(std::string(query) +
-		                         " returned an invalid Executed_Gtid_Set");
+	if (!snapshot_gtid_set(fifth, mariadb_pos, &set)) {
+		if (fifth && *fifth)
+			throw std::runtime_error(std::string(query) +
+			                         " returned an invalid Executed_Gtid_Set");
+		throw std::runtime_error("invalid gtid_binlog_pos");
+	}
 
 	impl_->snapshot_filename = row[0];
 	impl_->snapshot_position = position;

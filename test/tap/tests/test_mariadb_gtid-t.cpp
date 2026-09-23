@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(31);
+	plan(36);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -111,6 +111,18 @@ int main() {
 	   "display string keeps MariaDB native form");
 	wire.add("0", trxid_t(271));
 	ok(wire.to_string() == "0:1-271", "incremental seq extends watermark");
+
+	GTID_Set s;
+	ok(snapshot_gtid_set("24684d2a-9412-11ef-8c99-0242ac120002:1-3", "", &s)
+	       && s.has_gtid("24684d2a941211ef8c990242ac120002", 3),
+	   "non-empty MySQL fifth column wins");
+	ok(!snapshot_gtid_set("not-a-gtid", "0-1-270", &s),
+	   "malformed MySQL fifth column does not fall through");
+	ok(snapshot_gtid_set(nullptr, "0-1-270", &s) && s.has_gtid("0", 270),
+	   "missing fifth column uses MariaDB binlog pos");
+	ok(snapshot_gtid_set("", "0-1-270", &s) && s.has_gtid("0", 100),
+	   "empty fifth column uses MariaDB binlog pos");
+	ok(!snapshot_gtid_set(nullptr, "", &s), "missing both fails");
 
 	return exit_status();
 }
