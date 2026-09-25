@@ -14,7 +14,7 @@
 #include "tap.h"
 
 int main() {
-	plan(36);
+	plan(42);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -123,6 +123,16 @@ int main() {
 	ok(snapshot_gtid_set("", "0-1-270", &s) && s.map.empty(),
 	   "empty fifth column is empty MySQL set");
 	ok(!snapshot_gtid_set(nullptr, "", &s), "missing both fails");
+
+	ok(is_mariadb_server("10.11.18-MariaDB-ubu2204-log"),
+	   "flavor detect accepts a MariaDB version banner");
+	ok(is_mariadb_server("5.5.5-10.11.18-MariaDB"),
+	   "flavor detect accepts a replication-prefixed MariaDB banner");
+	ok(!is_mariadb_server("8.0.36"), "flavor detect rejects MySQL");
+	ok(!is_mariadb_server("8.0.36-0ubuntu0.22.04.1"),
+	   "flavor detect rejects a plain MySQL build string");
+	ok(!is_mariadb_server(nullptr), "flavor detect rejects a null banner");
+	ok(!is_mariadb_server(""), "flavor detect rejects an empty banner");
 
 	return exit_status();
 }

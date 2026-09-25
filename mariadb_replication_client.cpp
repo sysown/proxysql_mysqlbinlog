@@ -203,8 +203,11 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 
 	GTID_Set set;
 	if (nfields >= 5) {
+		// A present Executed_Gtid_Set column is auto-detected: MySQL reports
+		// 'uuid:intervals', MariaDB reports 'domain-server-sequence'. An empty
+		// column is ambiguous (no GTIDs executed) and stays an empty set.
 		const char* fifth = row[4] ? row[4] : "";
-		if (!snapshot_gtid_set(fifth, "", &set))
+		if (*fifth != '\0' && !parse_gtid_executed(fifth, &set))
 			throw std::runtime_error(std::string(query) +
 			                         " returned an invalid Executed_Gtid_Set");
 	} else {
@@ -237,7 +240,10 @@ void MariaDBReplicationClient::open_stream() {
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
-	if (mysql_query(impl_->mysql, "SET @mariadb_slave_capability=4"))
+	// MariaDB-only handshake hint; on MySQL the round trip is pure overhead and
+	// the user variable is meaningless there.
+	if (is_mariadb_server(impl_->mysql->server_version)
+		&& mysql_query(impl_->mysql, "SET @mariadb_slave_capability=4"))
 		throw connector_error("cannot set MariaDB replica capability", impl_->mysql);
 
 	impl_->rpl = mariadb_rpl_init(impl_->mysql);

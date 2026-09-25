@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -232,6 +233,11 @@ bool snapshot_gtid_set(const char* executed_gtid_set_or_null,
 	if (executed_gtid_set_or_null)
 		return parse_mysql_gtid_executed(executed_gtid_set_or_null, out);
 	return parse_mariadb_gtid_executed(mariadb_binlog_pos, out);
+}
+
+bool is_mariadb_server(const char* server_version) {
+	return server_version != nullptr
+		&& std::strstr(server_version, "MariaDB") != nullptr;
 }
 
 bool parse_mysql_snapshot_position(const char* filename, const char* encoded_position,
