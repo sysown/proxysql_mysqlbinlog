@@ -23,8 +23,20 @@ std::runtime_error connector_error(const char* action, MYSQL* mysql) {
 	return std::runtime_error(std::string(action) + ": " + ::mysql_error(mysql));
 }
 
-std::runtime_error rpl_error(const char* action, MARIADB_RPL* rpl) {
-	return std::runtime_error(std::string(action) + ": " + mariadb_rpl_error(rpl));
+/**
+ * mariadb_rpl_fetch() signals a read timeout by returning NULL and leaving the
+ * replication error empty, so the connector error is the only place the real
+ * cause (for example CR_SERVER_LOST) is reported.  A non-empty replication
+ * message always wins; the connector is only consulted as a fallback.
+ */
+std::runtime_error rpl_error(const char* action, MARIADB_RPL* rpl,
+                             MYSQL* mysql = nullptr) {
+	const char* detail = rpl ? mariadb_rpl_error(rpl) : nullptr;
+	if ((!detail || !*detail) && mysql)
+		detail = mysql_error(mysql);
+	if (!detail || !*detail)
+		detail = "unknown replication error";
+	return std::runtime_error(std::string(action) + ": " + detail);
 }
 
 class Result {
@@ -165,7 +177,11 @@ void MariaDBReplicationClient::connect() {
 	const unsigned int timeout_seconds = 10;
 	mysql_options(impl_->mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout_seconds);
 	const unsigned int read_timeout_seconds = impl_->options.read_timeout_seconds;
-	mysql_options(impl_->mysql, MYSQL_OPT_READ_TIMEOUT, &read_timeout_seconds);
+	if (mysql_options(impl_->mysql, MYSQL_OPT_READ_TIMEOUT, &read_timeout_seconds)) {
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw std::runtime_error("cannot set MySQL read timeout");
+	}
 	if (!mysql_real_connect(impl_->mysql, impl_->options.host.c_str(),
 	                        impl_->options.user.c_str(), impl_->options.password.c_str(),
 	                        nullptr, impl_->options.port, nullptr, 0)) {
@@ -253,13 +269,15 @@ void MariaDBReplicationClient::open_stream() {
 	                         impl_->snapshot_position) ||
 	    mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_SERVER_ID,
 	                         impl_->server_id)) {
-		std::runtime_error error = rpl_error("cannot configure replication stream", impl_->rpl);
+		std::runtime_error error =
+		    rpl_error("cannot configure replication stream", impl_->rpl, impl_->mysql);
 		mariadb_rpl_close(impl_->rpl);
 		impl_->rpl = nullptr;
 		throw error;
 	}
 	if (mariadb_rpl_open(impl_->rpl)) {
-		std::runtime_error error = rpl_error("cannot open replication stream", impl_->rpl);
+		std::runtime_error error =
+		    rpl_error("cannot open replication stream", impl_->rpl, impl_->mysql);
 		mariadb_rpl_close(impl_->rpl);
 		impl_->rpl = nullptr;
 		throw error;
@@ -286,7 +304,7 @@ void MariaDBReplicationClient::stream_events(
 	mariadb_free_rpl_event(event);
 
 	if (!is_stopping())
-		throw rpl_error("replication stream ended", impl_->rpl);
+		throw rpl_error("replication stream ended", impl_->rpl, impl_->mysql);
 }
 
 void MariaDBReplicationClient::interrupt() {
