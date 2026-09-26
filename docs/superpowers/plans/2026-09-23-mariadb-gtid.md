@@ -275,7 +275,7 @@ struct st_mariadb_rpl_gtid_event {
 };
 ```
 
-Event union field: `event->event.gtid`. Header `server_id` is `event->server_id` if present; if not, skip storing server_id.
+Event union field: `event->event.gtid`. `server_id` is not read from the event header: ProxySQL does not match on it, so the streamed id is the domain alone and `last_server_id` keeps whatever the snapshot text provided (see Task 7).
 
 - [ ] **Step 1: Extend `stream_events` (no live server in this task)**
 
@@ -459,6 +459,40 @@ git commit -m "test: live MariaDB GTID snapshot and stream TAP"
 
 ---
 
+### Task 7: PR 49 review remediation
+
+Automated-review findings on the branch, all verified against the code before
+fixing. `test_mariadb_gtid-t` goes from `plan(42)` to `plan(49)`.
+
+- [x] **Reject `domain`/`server` above `UINT32_MAX`** — the snapshot text comes
+      from a server as decimal text, but `domain_id` and `server_id` are uint32
+      in `GTID_EVENT`; `strtoul` + cast truncated a 33-bit value silently, and
+      a 33-bit domain would also reach ProxySQL as a `ST=` id it cannot parse
+      back. `parse_uint32_field()` in `mariadb_replication.cpp` now bounds both
+      before the watermark `add` and the `set_server_id` call. New tests:
+      `0-4294967296-1` and `4294967296-1-1` rejected, no partial state left,
+      and `4294967295-4294967295-1` still accepted.
+
+- [x] **Honor `GTID_Set::add()` in `bench_gtid_callback()`** — a false return
+      means the sequence is already in `curpos` (snapshot watermark or a
+      re-delivered GTID), so `last_trx_id`/`last_server_uuid` and the queued
+      `I1`/`I2` are left alone: `ST=` already advertises it. Characterization
+      tests pin the `add()` contract the callback now depends on. The reader
+      architecture is unchanged.
+
+- [x] **Spec/plan serialization wording** — the spec conflated wire and display
+      forms. `to_string()` is `domain:start-end` (`0:1-270`) and is what `ST=`
+      uses; `to_display_string()` is `domain-server-end` (`0-1-270`) and is
+      never sent. The stale "server_id from the event header" claim is gone
+      from both documents.
+
+- [x] **`test/tap/run.sh` MariaDB probe** — the probe used `MYSQL_HOST:3311`
+      while the tests ran against `${MARIADB_HOST:-$MYSQL_HOST}:${MARIADB_PORT:-3311}`,
+      so a custom `MARIADB_HOST` without `MARIADB_PORT` was skipped. Host and
+      port are now resolved once, before the probe.
+
+---
+
 ## Spec coverage
 
 | Spec item | Task |
@@ -476,3 +510,7 @@ git commit -m "test: live MariaDB GTID snapshot and stream TAP"
 | `@mariadb_slave_capability` only on MariaDB | 4 |
 | Live MariaDB TAP + 10.11 service | 5 |
 | MySQL matrix unchanged | 6 |
+| Reject `domain`/`server` above `UINT32_MAX` | 7 |
+| Duplicate GTID emits no incremental update | 7 |
+| Wire vs display serialization in spec | 7 |
+| MariaDB probe host/port matches the tests | 7 |

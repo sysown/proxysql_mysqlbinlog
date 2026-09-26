@@ -87,6 +87,26 @@ bool is_unsigned_decimal_no_leading_zeros(const std::string& input) {
 	return true;
 }
 
+// MariaDB carries domain_id and server_id as uint32, both in GTID_EVENT and in
+// the snapshot text, so anything wider cannot be represented without truncation.
+bool parse_uint32_field(const std::string& input, uint32_t* out) {
+	if (!out)
+		return false;
+
+	uint64_t value = 0;
+	for (char c : input) {
+		if (!std::isdigit(static_cast<unsigned char>(c)))
+			return false;
+		const uint64_t digit = static_cast<uint64_t>(c - '0');
+		if (value > (static_cast<uint64_t>(UINT32_MAX) - digit) / 10)
+			return false;
+		value = value * 10 + digit;
+	}
+
+	*out = static_cast<uint32_t>(value);
+	return true;
+}
+
 bool parse_mariadb_gtid_token(const std::string& token, GTID_Set* set) {
 	const size_t first = token.find('-');
 	if (first == std::string::npos)
@@ -108,9 +128,14 @@ bool parse_mariadb_gtid_token(const std::string& token, GTID_Set* set) {
 	trxid_t seq = 0;
 	if (!parse_positive_trxid(sequence, &seq))
 		return false;
-	const uint32_t server_id = static_cast<uint32_t>(std::strtoul(server.c_str(), nullptr, 10));
-	set->add(domain, trxid_t(1), seq);
-	set->set_server_id(domain, server_id);
+	uint32_t domain_id = 0;
+	uint32_t server_id = 0;
+	if (!parse_uint32_field(domain, &domain_id) ||
+	    !parse_uint32_field(server, &server_id))
+		return false;
+	const std::string domain_key = std::to_string(domain_id);
+	set->add(domain_key, trxid_t(1), seq);
+	set->set_server_id(domain_key, server_id);
 	return true;
 }
 

@@ -135,23 +135,27 @@ done
 
 # ---------------------------------------------------------------------
 # MariaDB pass. Runs after the MySQL matrix when MARIADB_PORT is set or
-# TCP 3311 on MYSQL_HOST is reachable. Official mariadb images may not
+# TCP 3311 on the MariaDB host is reachable. Official mariadb images may not
 # match the MySQL sandbox TLS policy, so SSL defaults to DISABLED.
-# If 3311 is down, skip this pass without failing the suite.
+# If that port is down, skip this pass without failing the suite.
+# The probe and the tests must agree on host and port: a custom MARIADB_HOST
+# without MARIADB_PORT would otherwise be probed on MYSQL_HOST:3311.
 # ---------------------------------------------------------------------
+MARIADB_PORT_EXPLICIT=${MARIADB_PORT:-}
+MARIADB_HOST=${MARIADB_HOST:-$MYSQL_HOST}
+MARIADB_PORT=${MARIADB_PORT:-3311}
+
 mariadb_available() {
-  if [ -n "${MARIADB_PORT:-}" ]; then
+  if [ -n "$MARIADB_PORT_EXPLICIT" ]; then
     return 0
   fi
-  timeout 1 bash -c "echo >/dev/tcp/${MYSQL_HOST}/3311" >/dev/null 2>&1
+  timeout 1 bash -c "echo >/dev/tcp/${MARIADB_HOST}/${MARIADB_PORT}" >/dev/null 2>&1
 }
 
 if mariadb_available; then
   export MYSQL_VERSION=mdb11
-  if [ -n "${MARIADB_HOST:-}" ]; then
-    export MYSQL_HOST="$MARIADB_HOST"
-  fi
-  export MYSQL_PORT=${MARIADB_PORT:-3311}
+  export MYSQL_HOST="$MARIADB_HOST"
+  export MYSQL_PORT="$MARIADB_PORT"
   export MYSQL_SSL_MODE=${MARIADB_SSL_MODE:-DISABLED}
   export MYSQL_SSL_VERIFY_SERVER_CERT="${MARIADB_SSL_VERIFY_SERVER_CERT:-0}"
   echo "### mariadb=$MYSQL_VERSION host=$MYSQL_HOST port=$MYSQL_PORT ssl=$MYSQL_SSL_MODE"
@@ -178,7 +182,7 @@ if mariadb_available; then
     fi
   done
 else
-  echo "### skipping MariaDB pass (port ${MARIADB_PORT:-3311} not reachable)"
+  echo "### skipping MariaDB pass (${MARIADB_HOST}:${MARIADB_PORT} not reachable)"
 fi
 
 exit "$overall_rc"

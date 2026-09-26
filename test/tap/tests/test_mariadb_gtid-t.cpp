@@ -6,6 +6,7 @@
  * internally, so the adapter must normalize both representations exactly.
  */
 
+#include <cstdint>
 #include <limits>
 #include <string>
 
@@ -14,7 +15,7 @@
 #include "tap.h"
 
 int main() {
-	plan(42);
+	plan(49);
 
 	const unsigned char source_id[] = {
 		0x24, 0x68, 0x4d, 0x2a, 0x94, 0x12, 0x11, 0xef,
@@ -104,6 +105,23 @@ int main() {
 	ok(!parse_mariadb_gtid_executed("0-1-270,not-a-gtid", &bad),
 	   "reject mixed junk");
 
+	// domain_id and server_id are uint32 on the wire (GTID_EVENT body), so a
+	// snapshot text carrying more than 32 bits cannot have come from a server
+	// this reader can stream, and would be silently truncated on the cast.
+	GTID_Set oversized;
+	ok(!parse_mariadb_gtid_executed("0-4294967296-1", &oversized),
+	   "reject a MariaDB server id above UINT32_MAX");
+	ok(!parse_mariadb_gtid_executed("4294967296-1-1", &oversized),
+	   "reject a MariaDB domain id above UINT32_MAX");
+	ok(oversized.map.empty() && oversized.last_server_id.empty(),
+	   "an oversized token leaves no partial position behind");
+
+	GTID_Set boundary;
+	ok(parse_mariadb_gtid_executed("4294967295-4294967295-1", &boundary)
+	       && boundary.has_gtid("4294967295", 1)
+	       && boundary.get_server_id("4294967295") == UINT32_MAX,
+	   "accept the largest uint32 domain and server id");
+
 	GTID_Set wire;
 	parse_mariadb_gtid_executed("0-1-270", &wire);
 	ok(wire.to_string() == "0:1-270", "wire to_string is domain:1-seq");
@@ -111,6 +129,15 @@ int main() {
 	   "display string keeps MariaDB native form");
 	wire.add("0", trxid_t(271));
 	ok(wire.to_string() == "0:1-271", "incremental seq extends watermark");
+
+	// bench_gtid_callback() treats a false GTID_Set::add() as "this sequence
+	// is already in the position": no last_trx_id/last_server_uuid update and
+	// no I1/I2 queued, because ST= already covers it.
+	GTID_Set dedup;
+	parse_mariadb_gtid_executed("0-1-270", &dedup);
+	ok(!dedup.add("0", trxid_t(270)), "re-adding a GTID already in the set is rejected");
+	ok(dedup.to_string() == "0:1-270", "a rejected duplicate leaves the position unchanged");
+	ok(dedup.add("0", trxid_t(271)), "a new sequence is still accepted");
 
 	GTID_Set s;
 	ok(snapshot_gtid_set("24684d2a-9412-11ef-8c99-0242ac120002:1-3", "", &s)

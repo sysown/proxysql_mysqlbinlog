@@ -35,7 +35,9 @@ MySQL (unchanged): UUID + `:` intervals, optional UUID dashes.
 
 MariaDB: `domain-server-sequence` with three unsigned decimals, no `:`.
 Sets are comma-separated, as in `@@gtid_binlog_pos` (`0-1-270,1-2-50`).
-Sequence `0` is invalid. Leading zeros (`00-1-1`) are invalid.
+Sequence `0` is invalid. Leading zeros (`00-1-1`) are invalid. `domain` and
+`server` are uint32 as in `GTID_EVENT`; anything wider than `UINT32_MAX` is
+invalid rather than truncated.
 
 Detection is per token: `:` → MySQL; `digits-digits-digits` → MariaDB;
 anything else is invalid.
@@ -72,19 +74,35 @@ Keep MySQL `GTID_LOG_EVENT` (UUID bytes + sequence).
 Also handle MariaDB `GTID_EVENT`:
 
 - `domain_id` and `sequence_nr` from the event body.
-- `server_id` from the event header (not sent on the wire; ProxySQL does not
-  match on it).
+- `server_id` is not read. `GTID_EVENT` exposes it only in the event header,
+   which the reader ignores; ProxySQL does not match on it, so streamed
+   positions carry domain only and the display `server_id` stays whatever the
+   snapshot text provided.
 - Callback stays `(id, trxid)` with `id = decimal domain`.
+
+A streamed sequence already present in the current position (inside the
+snapshot watermark, or re-delivered after a reconnect) is a no-op: it updates
+neither `last_trx_id`/`last_server_uuid` nor the queued `I1`/`I2` update,
+because `ST=` already advertises it. This is what `GTID_Set::add()` returning
+false means.
 
 Non-GTID events stay ignored.
 
-## GTID_Set and to_string
+## GTID_Set and serialization
 
 Reuse `GTID_Set`. MariaDB key is decimal `domain_id`. Snapshot `add` uses
 `[1, seq]`. Incremental events `add` the single sequence.
 
-`to_string()` must not insert UUID dashes into domain keys. Domain keys
-serialize as `domain-server-end` using last-seen `server_id` or `0`.
+Two representations exist, and they are not interchangeable:
+
+- `to_string()` is the wire form. A 32-hex key serializes as a dashed UUID
+  followed by `:intervals`; any other key (a MariaDB domain) serializes as
+  `domain:start-end` using no `server_id` and no UUID dashes — `0:1-270`.
+  `ST=` is `position_to_string(curpos)`, so `ST=` is this form.
+- `to_display_string()` is the human/MariaDB-native form. A 32-hex key is
+  left undashed; a domain key serializes as `domain-server-end` using the
+  last-seen `server_id` or `0` — `0-1-270`. It is diagnostics only and is
+  never sent on the wire.
 
 `parse_mysql_gtid_executed` stays. Add `parse_mariadb_gtid_executed` and a
 combined helper that tries MySQL then MariaDB.
@@ -100,7 +118,9 @@ combined helper that tries MySQL then MariaDB.
 ## Testing
 
 - Extend `test_mariadb_gtid-t` for MariaDB strings, watermark `[1, seq]`,
-  rejects (including leading zeros), and `to_string` without UUID dashes.
+  rejects (leading zeros, `domain`/`server` above `UINT32_MAX`), wire
+  `to_string()` vs display `to_display_string()`, and duplicate-`add`
+  suppression. 49 assertions.
 - Add a MariaDB 10.11 service to `test/infra` (separate from the dbdeployer
   MySQL matrix). Live TAP: snapshot, stream one committed transaction, observe
   `ST=` range then `I1=` domain:seq.
