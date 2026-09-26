@@ -109,6 +109,8 @@ int main() {
 	reader.listen_port = cli.reader_port;
 	reader.log_file_path = reader_log.path();
 	reader.tls = cli.tls;
+	reader.heartbeat_period_seconds = 1;
+	reader.read_timeout_seconds = 5;
 	const bool reader_started = reader.start();
 	unsetenv(kPostSnapshotDelayEnv);
 	const bool reader_ready = reader_started && reader.wait_ready(5000);
