@@ -341,6 +341,8 @@ bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
 		return false;
 	if (heartbeat_period_seconds > UINT_MAX / 3U)
 		return false;
+	if (read_timeout_seconds > static_cast<unsigned int>(INT_MAX))
+		return false;
 	return read_timeout_seconds >= heartbeat_period_seconds * 3U;
 }
 
