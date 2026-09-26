@@ -26,17 +26,15 @@ std::runtime_error connector_error(const char* action, MYSQL* mysql) {
 /**
  * mariadb_rpl_fetch() signals a read timeout by returning NULL and leaving the
  * replication error empty, so the connector error is the only place the real
- * cause (for example CR_SERVER_LOST) is reported.  A non-empty replication
- * message always wins; the connector is only consulted as a fallback.
+ * cause (for example CR_SERVER_LOST) is reported.  The message selection rule
+ * itself lives in the tested replication_error_detail() helper.
  */
 std::runtime_error rpl_error(const char* action, MARIADB_RPL* rpl,
                              MYSQL* mysql = nullptr) {
-	const char* detail = rpl ? mariadb_rpl_error(rpl) : nullptr;
-	if ((!detail || !*detail) && mysql)
-		detail = mysql_error(mysql);
-	if (!detail || !*detail)
-		detail = "unknown replication error";
-	return std::runtime_error(std::string(action) + ": " + detail);
+	return std::runtime_error(
+	    std::string(action) + ": " +
+	    replication_error_detail(rpl ? mariadb_rpl_error(rpl) : nullptr,
+	                             mysql ? ::mysql_error(mysql) : nullptr));
 }
 
 class Result {
@@ -335,4 +333,13 @@ std::string heartbeat_statement(unsigned int heartbeat_period_seconds) {
 	const uint64_t period = static_cast<uint64_t>(heartbeat_period_seconds) *
 	                        nanoseconds_per_second;
 	return "SET @master_heartbeat_period = " + std::to_string(period);
+}
+
+std::string replication_error_detail(const char* rpl_message,
+                                     const char* connector_message) {
+	if (rpl_message && *rpl_message)
+		return rpl_message;
+	if (connector_message && *connector_message)
+		return connector_message;
+	return "unknown replication error";
 }

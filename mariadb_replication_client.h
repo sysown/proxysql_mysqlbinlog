@@ -69,4 +69,16 @@ bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
  */
 std::string heartbeat_statement(unsigned int heartbeat_period_seconds);
 
+/**
+ * Pick the most informative message for a failed replication operation.
+ *
+ * mariadb_rpl_fetch() signals a read timeout by returning NULL and leaving the
+ * replication error empty, so the connector error is the only place the real
+ * cause (for example CR_SERVER_LOST) is reported.  A non-empty replication
+ * message always wins; the connector message is only used as a fallback.  When
+ * neither is available the result is "unknown replication error".
+ */
+std::string replication_error_detail(const char* rpl_message,
+                                     const char* connector_message);
+
 #endif  // PROXYSQL_MARIADB_REPLICATION_CLIENT_H
