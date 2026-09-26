@@ -25,6 +25,7 @@
 - Modify: `test/tap/tests/Makefile` — link the replication client into the pure-helper test
 - Modify: `test/tap/tests/test_basic_startup-t.cpp` — smoke-test explicit options
 - Modify: `test/tap/tests/test_replication_failure_shutdown-t.cpp` — verify failure path still logs/exits
+- Create: `test/tap/tests/test_replication_heartbeat-t.cpp` — prove idle stream survives past read timeout
 - Modify: `README.md` — document options and defaults
 
 ---
@@ -264,6 +265,7 @@ git commit -m "feat: configure replication heartbeat and read timeout"
 **Files:**
 - Modify: `test/tap/tests/test_basic_startup-t.cpp`
 - Modify: `test/tap/tests/test_replication_failure_shutdown-t.cpp`
+- Create: `test/tap/tests/test_replication_heartbeat-t.cpp`
 
 - [ ] **Step 1: Pass explicit options in startup smoke test**
 
@@ -279,6 +281,17 @@ The existing `ST=` assertion must still pass. This proves the flags are accepted
 - [ ] **Step 2: Verify failure shutdown still works**
 
 Keep the existing replication failure test. Add the same valid options to its reader. The listener must still open, the stream failure must still exit nonzero, and the log must still contain `Error in reading binlogs:`.
+
+- [ ] **Step 2a: Add heartbeat liveness coverage**
+
+Create `test_replication_heartbeat-t.cpp`:
+
+- Create `binlog_reader_test.replication_heartbeat_t` before starting the reader.
+- Start with `--heartbeat-period 1 --read-timeout 5` and require a valid `ST=`.
+- Sleep 7000 ms, then require `wait_exit(100)` to report no exit.
+- Insert one row and require the next line to be a valid `I1`.
+
+This proves an idle source does not trip the read timeout while heartbeats are enabled. It does not claim to reproduce a silent network partition.
 
 - [ ] **Step 3: Run focused live tests**
 
