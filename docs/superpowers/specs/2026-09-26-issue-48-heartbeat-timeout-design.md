@@ -11,7 +11,7 @@ Add two positive, configurable replication-liveness settings:
 - `--heartbeat-period`: default 5 seconds; sent as `@master_heartbeat_period` in nanoseconds before `mariadb_rpl_open()`.
 - `--read-timeout`: default 60 seconds; passed to Connector/C as `MYSQL_OPT_READ_TIMEOUT` before `mysql_real_connect()`.
 
-The read timeout must be at least three heartbeat periods. This lets an idle source survive between heartbeats while bounding detection of a dead link. Connector/C already returns heartbeat events; the existing GTID callback ignores non-GTID events. A stream error follows the current path: log the error, stop the listener, and let the supervisor restart the reader.
+The read timeout must be at least three heartbeat periods and no greater than `INT_MAX / 1000` seconds (2,147,483), because Connector/C stores the timeout in milliseconds in a signed integer. This lets an idle source survive between heartbeats while bounding detection of a dead link. Connector/C already returns heartbeat events; the existing GTID callback ignores non-GTID events. A stream error follows the current path: log the error, stop the listener, and let the supervisor restart the reader.
 
 The settings live in `MariaDBConnectionOptions` so the replication client owns the protocol behavior and the CLI only supplies validated values. No wire protocol change is required.
 

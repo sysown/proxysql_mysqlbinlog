@@ -12,7 +12,7 @@
 
 **Issue:** https://github.com/sysown/proxysql_mysqlbinlog/issues/48
 
-**Defaults:** heartbeat period 5 seconds; read timeout 60 seconds. Both must be positive. Read timeout must be at least three heartbeat periods so an idle source does not trip the socket timeout between heartbeats.
+**Defaults:** heartbeat period 5 seconds; read timeout 60 seconds. Both must be positive. Read timeout must be at least three heartbeat periods and no greater than `INT_MAX / 1000` seconds (2,147,483) so an idle source does not trip the socket timeout and Connector/C's signed millisecond value cannot overflow.
 
 ---
 
