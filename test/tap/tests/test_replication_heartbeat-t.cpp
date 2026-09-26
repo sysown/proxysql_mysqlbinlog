@@ -77,11 +77,19 @@ int main() {
 	diag("idling 7000ms (heartbeat=1s, read timeout=5s)");
 	std::this_thread::sleep_for(std::chrono::milliseconds(7000));
 
-	// running() only tells us the child has not been reaped yet, so the
-	// read below is the authoritative liveness check: a reader that died
-	// during the idle period has already closed our socket.
-	ok(reader.running(),
-	   "reader is still running after 7000ms idle with a 5s read timeout (pid=%d)",
+	// A short wait_exit() probe actually reaps the child, so unlike
+	// running() it fails when the reader died during the idle period.
+	// When the reader is alive it returns false and leaves pid_ intact,
+	// so the I1 read below stays the authoritative liveness check.
+	int exit_code = -1;
+	int term_signal = 0;
+	const bool reader_exited = reader.wait_exit(100, &exit_code, &term_signal);
+	if (reader_exited) {
+		diag("reader exited during the idle period (exit_code=%d term_signal=%d)",
+		     exit_code, term_signal);
+	}
+	ok(!reader_exited,
+	   "reader did not exit during 7000ms idle with a 5s read timeout (pid=%d)",
 	   reader.pid());
 
 	if (!db.exec("INSERT INTO binlog_reader_test.replication_heartbeat_t (v) VALUES (1)"))
