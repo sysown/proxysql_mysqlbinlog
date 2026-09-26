@@ -14,6 +14,8 @@ struct MariaDBConnectionOptions {
 	std::string user;
 	std::string password;
 	TLSOptions tls;
+	unsigned int heartbeat_period_seconds = 5;
+	unsigned int read_timeout_seconds = 60;
 };
 
 /**
@@ -55,5 +57,16 @@ class MariaDBReplicationClient {
  */
 bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
                                    unsigned int read_timeout_seconds);
+
+/**
+ * Build the statement that makes the source emit HEARTBEAT_LOG_EVENT while the
+ * replication stream is idle.  The value is a period in nanoseconds, so an idle
+ * partition surfaces as missing events instead of a blocked read.
+ *
+ * Returns an empty string when the period is zero or would overflow the
+ * nanosecond conversion.  The result only ever contains a formatted integer, so
+ * there is no injection surface.
+ */
+std::string heartbeat_statement(unsigned int heartbeat_period_seconds);
 
 #endif  // PROXYSQL_MARIADB_REPLICATION_CLIENT_H

@@ -139,6 +139,15 @@ void MariaDBReplicationClient::connect() {
 	if (!impl_->mysql)
 		throw std::runtime_error("mysql_init failed");
 
+	if (!validate_replication_timeouts(impl_->options.heartbeat_period_seconds,
+	                                  impl_->options.read_timeout_seconds)) {
+		std::runtime_error error("invalid replication timeouts: read timeout must be at "
+		                         "least three heartbeat periods");
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw error;
+	}
+
 	std::string tls_error;
 	if (!tls_options_valid(impl_->options.tls, &tls_error)) {
 		std::runtime_error error("TLS configuration failed: " + tls_error);
@@ -155,6 +164,8 @@ void MariaDBReplicationClient::connect() {
 
 	const unsigned int timeout_seconds = 10;
 	mysql_options(impl_->mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout_seconds);
+	const unsigned int read_timeout_seconds = impl_->options.read_timeout_seconds;
+	mysql_options(impl_->mysql, MYSQL_OPT_READ_TIMEOUT, &read_timeout_seconds);
 	if (!mysql_real_connect(impl_->mysql, impl_->options.host.c_str(),
 	                        impl_->options.user.c_str(), impl_->options.password.c_str(),
 	                        nullptr, impl_->options.port, nullptr, 0)) {
@@ -219,6 +230,14 @@ void MariaDBReplicationClient::open_stream() {
 		throw std::runtime_error("replication stream is already open");
 	if (!impl_->has_snapshot)
 		throw std::runtime_error("replication snapshot has not been captured");
+
+	const std::string heartbeat =
+	    heartbeat_statement(impl_->options.heartbeat_period_seconds);
+	if (heartbeat.empty())
+		throw std::runtime_error("invalid replication heartbeat period");
+	if (mysql_query(impl_->mysql, heartbeat.c_str()))
+		throw connector_error("cannot enable replication heartbeats", impl_->mysql);
+
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
@@ -285,4 +304,17 @@ bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
 	if (heartbeat_period_seconds > UINT_MAX / 3U)
 		return false;
 	return read_timeout_seconds >= heartbeat_period_seconds * 3U;
+}
+
+std::string heartbeat_statement(unsigned int heartbeat_period_seconds) {
+	const uint64_t nanoseconds_per_second = UINT64_C(1000000000);
+	if (heartbeat_period_seconds == 0)
+		return std::string();
+	if (static_cast<uint64_t>(heartbeat_period_seconds) >
+	    UINT64_MAX / nanoseconds_per_second)
+		return std::string();
+
+	const uint64_t period = static_cast<uint64_t>(heartbeat_period_seconds) *
+	                        nanoseconds_per_second;
+	return "SET @master_heartbeat_period = " + std::to_string(period);
 }

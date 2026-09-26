@@ -25,7 +25,7 @@ test_replication_server_id-t: test_replication_server_id-t.cpp \
 
 test_replication_timeouts-t: test_replication_timeouts-t.cpp \
 		../../../mariadb_replication_client.cpp ../../../mariadb_replication.cpp \
-		../../..//tls_options.cpp ../../../proxysql_gtid.cpp \
+		../../../tls_options.h ../../../tls_options.cpp ../../../proxysql_gtid.cpp \
 		../tap.cpp $(MARIADB_CONNECTOR_ARCHIVE)
 	$(CXX) $(CXXFLAGS) $(MARIADB_CFLAGS) -I.. -I../../.. \
 		test_replication_timeouts-t.cpp ../../../mariadb_replication_client.cpp \
