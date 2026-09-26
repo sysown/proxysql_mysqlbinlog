@@ -222,10 +222,19 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out) {
 }
 
 bool parse_mariadb_gtid_executed(const std::string& encoded, GTID_Set* out) {
-	if (!out || encoded.empty())
+	if (!out)
 		return false;
 
 	GTID_Set parsed;
+	// MariaDB reports an empty @@gtid_binlog_pos until its first GTID. That is a
+	// valid empty GTID_Set, not a malformed value: the reader's main loop waits
+	// for a non-empty position before opening the stream. Only malformed
+	// non-empty text fails.
+	if (encoded.empty()) {
+		*out = parsed;
+		return true;
+	}
+
 	size_t set_start = 0;
 	while (set_start < encoded.size()) {
 		const size_t set_end = encoded.find(',', set_start);

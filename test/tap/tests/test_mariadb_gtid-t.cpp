@@ -101,7 +101,10 @@ int main() {
 	ok(!parse_mariadb_gtid_executed("0-1-0", &bad), "reject sequence 0");
 	ok(!parse_mariadb_gtid_executed("00-1-1", &bad), "reject leading zeros");
 	ok(!parse_mariadb_gtid_executed("0-1-1:2", &bad), "reject colon in MariaDB");
-	ok(!parse_mariadb_gtid_executed("", &bad), "reject empty MariaDB set");
+	GTID_Set empty_position;
+	ok(parse_mariadb_gtid_executed("", &empty_position)
+	       && empty_position.map.empty() && empty_position.last_server_id.empty(),
+	   "parse empty MariaDB position as empty set");
 	ok(!parse_mariadb_gtid_executed("0-1-270,not-a-gtid", &bad),
 	   "reject mixed junk");
 
@@ -149,7 +152,8 @@ int main() {
 	   "missing fifth column uses MariaDB binlog pos");
 	ok(snapshot_gtid_set("", "0-1-270", &s) && s.map.empty(),
 	   "empty fifth column is empty MySQL set");
-	ok(!snapshot_gtid_set(nullptr, "", &s), "missing both fails");
+	ok(snapshot_gtid_set(nullptr, "", &s) && s.map.empty(),
+	   "empty MariaDB binlog pos is an empty snapshot set");
 
 	ok(is_mariadb_server("10.11.18-MariaDB-ubu2204-log"),
 	   "flavor detect accepts a MariaDB version banner");

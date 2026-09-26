@@ -47,7 +47,9 @@ services:
       --gtid-strict-mode=1
       --bind-address=0.0.0.0
     ports:
-      - "3311:3306"
+      # Loopback-only: the test database is reachable from the host, never
+      # from outside it.
+      - "127.0.0.1:3311:3306"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
