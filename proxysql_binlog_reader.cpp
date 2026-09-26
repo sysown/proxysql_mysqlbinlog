@@ -818,7 +818,7 @@ void usage(const char* name) {
 	"--ssl-cipher: TLS cipher list.\n"
 	"--tls-version: TLS protocol version.\n"
 	"--heartbeat-period: Replication heartbeat period, in seconds (default " << DEFAULT_HEARTBEAT_PERIOD_SECONDS << ").\n"
-	"--read-timeout: Replication read timeout, in seconds (default " << DEFAULT_READ_TIMEOUT_SECONDS << "); must be at least three times the heartbeat period.\n"
+	"--read-timeout: Replication read timeout, in seconds (default " << DEFAULT_READ_TIMEOUT_SECONDS << "); must be positive, at least three times the heartbeat period, and at most 2147483.\n"
 	<< std::endl;
 }
 
@@ -949,8 +949,8 @@ int main(int argc, char** argv) {
 	if (!validate_replication_timeouts(heartbeat_period_seconds,
 	                                   read_timeout_seconds)) {
 		std::cerr << "replication read timeout (" << read_timeout_seconds
-		          << "s) must be at least three times the heartbeat period ("
-		          << heartbeat_period_seconds << "s)" << std::endl;
+		          << "s) must be positive, at least three times the heartbeat period ("
+		          << heartbeat_period_seconds << "s), and at most 2147483s" << std::endl;
 		usage(argv[0]);
 		return 1;
 	}

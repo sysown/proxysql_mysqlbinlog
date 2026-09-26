@@ -1,6 +1,7 @@
 #ifndef PROXYSQL_MARIADB_REPLICATION_CLIENT_H
 #define PROXYSQL_MARIADB_REPLICATION_CLIENT_H
 
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -61,9 +62,20 @@ class MariaDBReplicationClient {
 bool parse_positive_seconds(const std::string& value, unsigned int* result);
 
 /**
+ * Largest read timeout Connector/C can represent.
+ *
+ * MYSQL_OPT_READ_TIMEOUT is an `unsigned int` in seconds, but the connector
+ * stores it as a millisecond count in a signed `int`, so anything above
+ * INT_MAX / 1000 seconds would wrap and produce a bogus timeout.
+ */
+const unsigned int MAX_REPLICATION_READ_TIMEOUT_SECONDS =
+    static_cast<unsigned int>(INT_MAX) / 1000U;
+
+/**
  * Reject timeout combinations that would let a silent network partition block
- * mariadb_rpl_fetch forever.  Both values must be positive and the read timeout
- * must cover at least three heartbeat periods.
+ * mariadb_rpl_fetch forever.  Both values must be positive, the read timeout
+ * must cover at least three heartbeat periods, and it must stay within
+ * MAX_REPLICATION_READ_TIMEOUT_SECONDS.
  */
 bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
                                    unsigned int read_timeout_seconds);
