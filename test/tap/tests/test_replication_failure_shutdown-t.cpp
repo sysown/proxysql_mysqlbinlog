@@ -113,12 +113,9 @@ int main() {
 	reader.read_timeout_seconds = 5;
 	const bool reader_started = reader.start();
 	unsetenv(kPostSnapshotDelayEnv);
-	// The listener thread starts first, but the listener does not become
-	// available until the binlog snapshot completes and the injected
-	// post-snapshot delay has elapsed. Measured at roughly 8-9s on the
-	// 5.7/8.0/8.4/9.4 fleet, so 5s expires before the port accepts. Keep
-	// this generous; the exit/error assertions below carry the actual
-	// test signal.
+	// 15s leaves room for the slowest sandbox's snapshot/startup path;
+	// the failure assertions below (nonzero exit plus the stream error
+	// log) carry the actual test signal.
 	const bool reader_ready = reader_started && reader.wait_ready(15000);
 	ok(reader_ready,
 	   "reader opens its listener before the replication stream is rejected");
