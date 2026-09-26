@@ -59,8 +59,10 @@ emit the `[1, seq]` range.
 1. `SHOW BINARY LOG STATUS` or `SHOW MASTER STATUS` for File and Position.
    Two columns are enough; do not require five.
 2. If a fifth column parses as a MySQL GTID set, use it.
-3. Otherwise `SELECT @@GLOBAL.gtid_binlog_pos`. Parse as MariaDB. Empty or
-   invalid fails startup.
+3. Otherwise `SELECT @@GLOBAL.gtid_binlog_pos`. Parse as MariaDB. An empty
+   value is not an error: it yields an empty `GTID_Set` and the reader waits
+   for the first non-empty position instead of failing startup. Only a
+   non-empty value that fails to parse fails startup.
 
 MariaDB `SHOW MASTER STATUS` has no `Executed_Gtid_Set`. Current code that
 requires `mysql_num_fields >= 5` and `row[4]` must not be the only path.
@@ -91,7 +93,9 @@ combined helper that tries MySQL then MariaDB.
 
 ## Error handling
 
-- Invalid snapshot GTID set: fail startup, do not listen.
+- Malformed non-empty snapshot GTID set: fail startup, do not listen. An empty
+  snapshot (`@@gtid_binlog_pos` = `''`) is accepted and produces an empty
+  `GTID_Set`; the reader waits for the first non-empty position.
 - Invalid MySQL fifth column must not silently fall through if it is present
   and non-empty but malformed; only missing/empty fifth column triggers the
   MariaDB `@@gtid_binlog_pos` fallback.
