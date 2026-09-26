@@ -48,4 +48,12 @@ class MariaDBReplicationClient {
 	Impl* impl_;
 };
 
+/**
+ * Reject timeout combinations that would let a silent network partition block
+ * mariadb_rpl_fetch forever.  Both values must be positive and the read timeout
+ * must cover at least three heartbeat periods.
+ */
+bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
+                                   unsigned int read_timeout_seconds);
+
 #endif  // PROXYSQL_MARIADB_REPLICATION_CLIENT_H

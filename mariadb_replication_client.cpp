@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <fcntl.h>
@@ -275,4 +276,13 @@ void MariaDBReplicationClient::interrupt() {
 	const my_socket socket = mysql_get_socket(impl_->mysql);
 	if (socket != MARIADB_INVALID_SOCKET)
 		shutdown(static_cast<int>(socket), SHUT_RDWR);
+}
+
+bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
+                                   unsigned int read_timeout_seconds) {
+	if (heartbeat_period_seconds == 0 || read_timeout_seconds == 0)
+		return false;
+	if (heartbeat_period_seconds > UINT_MAX / 3U)
+		return false;
+	return read_timeout_seconds >= heartbeat_period_seconds * 3U;
 }
