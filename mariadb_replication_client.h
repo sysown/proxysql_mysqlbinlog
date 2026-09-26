@@ -51,6 +51,16 @@ class MariaDBReplicationClient {
 };
 
 /**
+ * Parse a strictly positive, decimal number of seconds.
+ *
+ * Rejects an empty string, any character that is not an ASCII digit (signs,
+ * whitespace, separators, suffixes), values that do not fit in `unsigned int`,
+ * and zero.  The function never throws, so it is safe to use directly on
+ * getopt arguments.
+ */
+bool parse_positive_seconds(const std::string& value, unsigned int* result);
+
+/**
  * Reject timeout combinations that would let a silent network partition block
  * mariadb_rpl_fetch forever.  Both values must be positive and the read timeout
  * must cover at least three heartbeat periods.

@@ -313,6 +313,28 @@ void MariaDBReplicationClient::interrupt() {
 		shutdown(static_cast<int>(socket), SHUT_RDWR);
 }
 
+bool parse_positive_seconds(const std::string& value, unsigned int* result) {
+	if (!result || value.empty())
+		return false;
+
+	unsigned long long parsed = 0;
+	for (std::string::const_iterator it = value.begin(); it != value.end();
+	     ++it) {
+		if (*it < '0' || *it > '9')
+			return false;
+		const unsigned long long digit =
+			static_cast<unsigned long long>(*it - '0');
+		if (parsed > (static_cast<unsigned long long>(UINT_MAX) - digit) / 10ULL)
+			return false;
+		parsed = parsed * 10ULL + digit;
+	}
+
+	if (parsed == 0)
+		return false;
+	*result = static_cast<unsigned int>(parsed);
+	return true;
+}
+
 bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
                                    unsigned int read_timeout_seconds) {
 	if (heartbeat_period_seconds == 0 || read_timeout_seconds == 0)

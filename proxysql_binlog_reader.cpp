@@ -67,6 +67,8 @@ void proxy_log_func(const char *fmt, ...) {
 #define DEFAULT_ERRORLOG                     "/tmp/proxysql_mysqlbinlog.log"
 #define DEFAULT_MYSQL_PORT                   3306
 #define DEFAULT_LISTEN_PORT                  6020
+#define DEFAULT_HEARTBEAT_PERIOD_SECONDS     5
+#define DEFAULT_READ_TIMEOUT_SECONDS         60
 #define DEFAULT_MAX_NETBUFLEN_STREAMING      (8 * NETBUFLEN)
 #define DEFAULT_MAX_NETBUFLEN_BATCHED        (8192 * NETBUFLEN)
 #define PROXYSQL_UPDATE_BATCHING_MIN_VERSION "3.0.8"
@@ -815,6 +817,8 @@ void usage(const char* name) {
 	"--ssl-key: Client private-key file.\n"
 	"--ssl-cipher: TLS cipher list.\n"
 	"--tls-version: TLS protocol version.\n"
+	"--heartbeat-period: Replication heartbeat period, in seconds (default " << DEFAULT_HEARTBEAT_PERIOD_SECONDS << ").\n"
+	"--read-timeout: Replication read timeout, in seconds (default " << DEFAULT_READ_TIMEOUT_SECONDS << "); must be at least three times the heartbeat period.\n"
 	<< std::endl;
 }
 
@@ -830,6 +834,8 @@ int main(int argc, char** argv) {
 	std::string errorstr;
 	unsigned int port = DEFAULT_MYSQL_PORT;
 	TLSOptions tls_options;
+	unsigned int heartbeat_period_seconds = DEFAULT_HEARTBEAT_PERIOD_SECONDS;
+	unsigned int read_timeout_seconds = DEFAULT_READ_TIMEOUT_SECONDS;
 	const std::string default_listener = std::to_string(DEFAULT_LISTEN_PORT);
 	if (!parse_listener_config(default_listener.c_str(),
 	                           &listener_config)) {
@@ -846,6 +852,8 @@ int main(int argc, char** argv) {
 		OPTION_SSL_KEY,
 		OPTION_SSL_CIPHER,
 		OPTION_TLS_VERSION,
+		OPTION_HEARTBEAT_PERIOD,
+		OPTION_READ_TIMEOUT,
 	};
 	static const struct option long_options[] = {
 		{"ssl-mode", required_argument, nullptr, OPTION_SSL_MODE},
@@ -857,6 +865,8 @@ int main(int argc, char** argv) {
 		{"ssl-key", required_argument, nullptr, OPTION_SSL_KEY},
 		{"ssl-cipher", required_argument, nullptr, OPTION_SSL_CIPHER},
 		{"tls-version", required_argument, nullptr, OPTION_TLS_VERSION},
+		{"heartbeat-period", required_argument, nullptr, OPTION_HEARTBEAT_PERIOD},
+		{"read-timeout", required_argument, nullptr, OPTION_READ_TIMEOUT},
 		{nullptr, 0, nullptr, 0},
 	};
 
@@ -909,6 +919,20 @@ int main(int argc, char** argv) {
 			case OPTION_SSL_KEY: tls_options.key_file = optarg; break;
 			case OPTION_SSL_CIPHER: tls_options.cipher = optarg; break;
 			case OPTION_TLS_VERSION: tls_options.version = optarg; break;
+			case OPTION_HEARTBEAT_PERIOD:
+				if (!parse_positive_seconds(optarg, &heartbeat_period_seconds)) {
+					std::cerr << "invalid replication heartbeat period: " << optarg << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
+			case OPTION_READ_TIMEOUT:
+				if (!parse_positive_seconds(optarg, &read_timeout_seconds)) {
+					std::cerr << "invalid replication read timeout: " << optarg << std::endl;
+					usage(argv[0]);
+					return 1;
+				}
+				break;
 			default:
 				usage(argv[0]);
 				return 1;
@@ -918,6 +942,15 @@ int main(int argc, char** argv) {
 	std::string tls_error;
 	if (!tls_options_valid(tls_options, &tls_error)) {
 		std::cerr << tls_error << std::endl;
+		usage(argv[0]);
+		return 1;
+	}
+
+	if (!validate_replication_timeouts(heartbeat_period_seconds,
+	                                   read_timeout_seconds)) {
+		std::cerr << "replication read timeout (" << read_timeout_seconds
+		          << "s) must be at least three times the heartbeat period ("
+		          << heartbeat_period_seconds << "s)" << std::endl;
 		usage(argv[0]);
 		return 1;
 	}
@@ -1019,6 +1052,8 @@ __start_label:
 	connection_options.user = user;
 	connection_options.password = password;
 	connection_options.tls = tls_options;
+	connection_options.heartbeat_period_seconds = heartbeat_period_seconds;
+	connection_options.read_timeout_seconds = read_timeout_seconds;
 
 	try {
 		proxy_info("proxysql_binlog_reader version %s", BINLOG_VERSION);

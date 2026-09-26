@@ -107,6 +107,15 @@ bool BinlogReaderProcess::start() {
 	append_tls_option("--ssl-cipher", tls.cipher);
 	append_tls_option("--tls-version", tls.version);
 
+	if (heartbeat_period_seconds >= 0) {
+		argv.push_back("--heartbeat-period");
+		argv.push_back(std::to_string(heartbeat_period_seconds));
+	}
+	if (read_timeout_seconds >= 0) {
+		argv.push_back("--read-timeout");
+		argv.push_back(std::to_string(read_timeout_seconds));
+	}
+
 	if (freq_ms >= 0) {
 		argv.push_back("-t");
 		argv.push_back(std::to_string(freq_ms));
