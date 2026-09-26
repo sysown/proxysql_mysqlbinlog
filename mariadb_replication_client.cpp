@@ -151,10 +151,11 @@ void MariaDBReplicationClient::connect() {
 
 	if (!validate_replication_timeouts(impl_->options.heartbeat_period_seconds,
 	                                  impl_->options.read_timeout_seconds)) {
-		std::runtime_error error("invalid replication timeouts: both values must "
-		                         "be positive, the read timeout must be at least "
-		                         "three heartbeat periods, and must not exceed 2147483 "
-		                         "seconds");
+		std::runtime_error error(std::string("invalid replication timeouts: both values must "
+		                                     "be positive, the read timeout must be at least "
+		                                     "three heartbeat periods, and must not exceed ") +
+		                         std::to_string(MAX_REPLICATION_READ_TIMEOUT_SECONDS) +
+		                         " seconds");
 		mysql_close(impl_->mysql);
 		impl_->mysql = nullptr;
 		throw error;
