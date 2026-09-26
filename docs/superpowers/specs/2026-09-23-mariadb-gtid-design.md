@@ -100,9 +100,13 @@ Two representations exist, and they are not interchangeable:
   `domain:start-end` using no `server_id` and no UUID dashes — `0:1-270`.
   `ST=` is `position_to_string(curpos)`, so `ST=` is this form.
 - `to_display_string()` is the human/MariaDB-native form. A 32-hex key is
-  left undashed; a domain key serializes as `domain-server-end` using the
-  last-seen `server_id` or `0` — `0-1-270`. It is diagnostics only and is
-  never sent on the wire.
+  dashed identically to `to_string()` and followed by `:intervals`; a domain
+  key serializes as `domain-server-end` using the highest interval end and
+  the last-seen `server_id` for that domain (or `0` if none) — `0-1-270`.
+  That domain form keeps only the highest interval end, so sparse intervals
+  collapse and the display is not a lossless range representation; it is for
+  humans, not for reconstructing a position. It is display-only and is not the
+  `ST=` wire serializer: it has no production wire caller, only test coverage.
 
 `parse_mysql_gtid_executed` stays. Add `parse_mariadb_gtid_executed` and a
 combined helper that tries MySQL then MariaDB.
