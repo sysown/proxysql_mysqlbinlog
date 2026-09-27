@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <cstdint>
 #include <cstdlib>
 #include <fcntl.h>
@@ -22,8 +23,18 @@ std::runtime_error connector_error(const char* action, MYSQL* mysql) {
 	return std::runtime_error(std::string(action) + ": " + ::mysql_error(mysql));
 }
 
-std::runtime_error rpl_error(const char* action, MARIADB_RPL* rpl) {
-	return std::runtime_error(std::string(action) + ": " + mariadb_rpl_error(rpl));
+/**
+ * mariadb_rpl_fetch() signals a read timeout by returning NULL and leaving the
+ * replication error empty, so the connector error is the only place the real
+ * cause (for example CR_SERVER_LOST) is reported.  The message selection rule
+ * itself lives in the tested replication_error_detail() helper.
+ */
+std::runtime_error rpl_error(const char* action, MARIADB_RPL* rpl,
+                             MYSQL* mysql = nullptr) {
+	return std::runtime_error(
+	    std::string(action) + ": " +
+	    replication_error_detail(rpl ? mariadb_rpl_error(rpl) : nullptr,
+	                             mysql ? ::mysql_error(mysql) : nullptr));
 }
 
 class Result {
@@ -138,6 +149,18 @@ void MariaDBReplicationClient::connect() {
 	if (!impl_->mysql)
 		throw std::runtime_error("mysql_init failed");
 
+	if (!validate_replication_timeouts(impl_->options.heartbeat_period_seconds,
+	                                  impl_->options.read_timeout_seconds)) {
+		std::runtime_error error(std::string("invalid replication timeouts: both values must "
+		                                     "be positive, the read timeout must be at least "
+		                                     "three heartbeat periods, and must not exceed ") +
+		                         std::to_string(MAX_REPLICATION_READ_TIMEOUT_SECONDS) +
+		                         " seconds");
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw error;
+	}
+
 	std::string tls_error;
 	if (!tls_options_valid(impl_->options.tls, &tls_error)) {
 		std::runtime_error error("TLS configuration failed: " + tls_error);
@@ -154,6 +177,12 @@ void MariaDBReplicationClient::connect() {
 
 	const unsigned int timeout_seconds = 10;
 	mysql_options(impl_->mysql, MYSQL_OPT_CONNECT_TIMEOUT, &timeout_seconds);
+	const unsigned int read_timeout_seconds = impl_->options.read_timeout_seconds;
+	if (mysql_options(impl_->mysql, MYSQL_OPT_READ_TIMEOUT, &read_timeout_seconds)) {
+		mysql_close(impl_->mysql);
+		impl_->mysql = nullptr;
+		throw std::runtime_error("cannot set MySQL read timeout");
+	}
 	if (!mysql_real_connect(impl_->mysql, impl_->options.host.c_str(),
 	                        impl_->options.user.c_str(), impl_->options.password.c_str(),
 	                        nullptr, impl_->options.port, nullptr, 0)) {
@@ -218,6 +247,14 @@ void MariaDBReplicationClient::open_stream() {
 		throw std::runtime_error("replication stream is already open");
 	if (!impl_->has_snapshot)
 		throw std::runtime_error("replication snapshot has not been captured");
+
+	const std::string heartbeat =
+	    heartbeat_statement(impl_->options.heartbeat_period_seconds);
+	if (heartbeat.empty())
+		throw std::runtime_error("invalid replication heartbeat period");
+	if (mysql_query(impl_->mysql, heartbeat.c_str()))
+		throw connector_error("cannot enable replication heartbeats", impl_->mysql);
+
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
@@ -233,13 +270,15 @@ void MariaDBReplicationClient::open_stream() {
 	                         impl_->snapshot_position) ||
 	    mariadb_rpl_optionsv(impl_->rpl, MARIADB_RPL_SERVER_ID,
 	                         impl_->server_id)) {
-		std::runtime_error error = rpl_error("cannot configure replication stream", impl_->rpl);
+		std::runtime_error error =
+		    rpl_error("cannot configure replication stream", impl_->rpl, impl_->mysql);
 		mariadb_rpl_close(impl_->rpl);
 		impl_->rpl = nullptr;
 		throw error;
 	}
 	if (mariadb_rpl_open(impl_->rpl)) {
-		std::runtime_error error = rpl_error("cannot open replication stream", impl_->rpl);
+		std::runtime_error error =
+		    rpl_error("cannot open replication stream", impl_->rpl, impl_->mysql);
 		mariadb_rpl_close(impl_->rpl);
 		impl_->rpl = nullptr;
 		throw error;
@@ -266,7 +305,7 @@ void MariaDBReplicationClient::stream_events(
 	mariadb_free_rpl_event(event);
 
 	if (!is_stopping())
-		throw rpl_error("replication stream ended", impl_->rpl);
+		throw rpl_error("replication stream ended", impl_->rpl, impl_->mysql);
 }
 
 void MariaDBReplicationClient::interrupt() {
@@ -275,4 +314,59 @@ void MariaDBReplicationClient::interrupt() {
 	const my_socket socket = mysql_get_socket(impl_->mysql);
 	if (socket != MARIADB_INVALID_SOCKET)
 		shutdown(static_cast<int>(socket), SHUT_RDWR);
+}
+
+bool parse_positive_seconds(const std::string& value, unsigned int* result) {
+	if (!result || value.empty())
+		return false;
+
+	unsigned long long parsed = 0;
+	for (std::string::const_iterator it = value.begin(); it != value.end();
+	     ++it) {
+		if (*it < '0' || *it > '9')
+			return false;
+		const unsigned long long digit =
+			static_cast<unsigned long long>(*it - '0');
+		if (parsed > (static_cast<unsigned long long>(UINT_MAX) - digit) / 10ULL)
+			return false;
+		parsed = parsed * 10ULL + digit;
+	}
+
+	if (parsed == 0)
+		return false;
+	*result = static_cast<unsigned int>(parsed);
+	return true;
+}
+
+bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
+                                   unsigned int read_timeout_seconds) {
+	if (heartbeat_period_seconds == 0 || read_timeout_seconds == 0)
+		return false;
+	if (heartbeat_period_seconds > UINT_MAX / 3U)
+		return false;
+	if (read_timeout_seconds > MAX_REPLICATION_READ_TIMEOUT_SECONDS)
+		return false;
+	return read_timeout_seconds >= heartbeat_period_seconds * 3U;
+}
+
+std::string heartbeat_statement(unsigned int heartbeat_period_seconds) {
+	const uint64_t nanoseconds_per_second = UINT64_C(1000000000);
+	if (heartbeat_period_seconds == 0)
+		return std::string();
+	if (static_cast<uint64_t>(heartbeat_period_seconds) >
+	    UINT64_MAX / nanoseconds_per_second)
+		return std::string();
+
+	const uint64_t period = static_cast<uint64_t>(heartbeat_period_seconds) *
+	                        nanoseconds_per_second;
+	return "SET @master_heartbeat_period = " + std::to_string(period);
+}
+
+std::string replication_error_detail(const char* rpl_message,
+                                     const char* connector_message) {
+	if (rpl_message && *rpl_message)
+		return rpl_message;
+	if (connector_message && *connector_message)
+		return connector_message;
+	return "unknown replication error";
 }

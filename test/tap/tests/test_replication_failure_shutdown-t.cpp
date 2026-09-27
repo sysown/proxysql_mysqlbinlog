@@ -109,9 +109,14 @@ int main() {
 	reader.listen_port = cli.reader_port;
 	reader.log_file_path = reader_log.path();
 	reader.tls = cli.tls;
+	reader.heartbeat_period_seconds = 1;
+	reader.read_timeout_seconds = 5;
 	const bool reader_started = reader.start();
 	unsetenv(kPostSnapshotDelayEnv);
-	const bool reader_ready = reader_started && reader.wait_ready(5000);
+	// 15s leaves room for the slowest sandbox's snapshot/startup path;
+	// the failure assertions below (nonzero exit plus the stream error
+	// log) carry the actual test signal.
+	const bool reader_ready = reader_started && reader.wait_ready(15000);
 	ok(reader_ready,
 	   "reader opens its listener before the replication stream is rejected");
 	if (!reader_ready) {

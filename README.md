@@ -129,6 +129,36 @@ insecure, test/private-only decision:
   --ssl-mode=REQUIRED --ssl-verify-server-cert=0
 ```
 
+#### Replication heartbeat and read timeout
+
+The reader asks the MySQL server to emit replication heartbeats while the
+binlog stream is idle, and caps how long a single read may block:
+
++ `--heartbeat-period`: replication heartbeat period, in seconds (default `5`)
++ `--read-timeout`: replication read timeout, in seconds (default `60`)
+
+```sh
+./proxysql_binlog_reader -h mysql1 -u reader -p secret -P 3306 -l 6020 -f \
+  --heartbeat-period=5 --read-timeout=60
+```
+
+Both values must be positive decimal whole seconds, and the read timeout must
+be at least three times the heartbeat period — otherwise the reader exits with a
+usage error before connecting, because a timeout shorter than a heartbeat would
+trip on a quiet source. A too-large read timeout slows down the detection of a
+lost connection, so keep it within a few heartbeat periods of the value that
+suits your replication latency.
+
+The read timeout is also capped at 2147483 seconds, because Connector/C holds the
+timeout as a millisecond count in a signed `int`; a larger value would wrap into
+a bogus timeout.
+
+When a read fails (for example a silently dropped link, surfaced as a read
+timeout or a lost server connection) the reader exits and the existing
+supervisor loop restarts it; in the default daemon mode the angel process
+respawns the reader, and a restart happening twice in the same second is delayed
+by one second to avoid a tight crash loop.
+
 #### Arguments
 
 + `-h`: MySQL host
@@ -147,6 +177,8 @@ insecure, test/private-only decision:
 + `--ssl-ca`, `--ssl-capath`: optional CA file or directory
 + `--ssl-cert`, `--ssl-key`: optional client certificate and private key
 + `--ssl-cipher`, `--tls-version`: optional TLS cipher list and protocol version
++ `--heartbeat-period`: replication heartbeat period, in seconds (default `5`)
++ `--read-timeout`: replication read timeout, in seconds (default `60`); must be positive, at least three times the heartbeat period, and at most 2147483
 
 Container images expose the same TLS settings through `SSL_MODE` and
 `SSL_VERIFY_SERVER_CERT` (defaults `REQUIRED` and `1`), with optional
