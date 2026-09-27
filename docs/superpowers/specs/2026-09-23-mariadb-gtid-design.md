@@ -56,13 +56,21 @@ emit the `[1, seq]` range.
 
 ## Snapshot
 
-1. `SHOW BINARY LOG STATUS` or `SHOW MASTER STATUS` for File and Position.
-   Two columns are enough; do not require five.
-2. If a fifth column parses as a MySQL GTID set, use it.
-3. Otherwise `SELECT @@GLOBAL.gtid_binlog_pos`. Parse as MariaDB. An empty
-   value is not an error: it yields an empty `GTID_Set` and the reader waits
-   for the first non-empty position instead of failing startup. Only a
-   non-empty value that fails to parse fails startup.
+1. `SHOW BINARY LOG STATUS` or `SHOW MASTER STATUS` supplies File and Position.
+   Two columns are enough; do not require five, and do not reject the query
+   because it returned fewer than five.
+2. When a fifth column is present and non-empty, it is the snapshot GTID set.
+   Parse it with the combined auto-detecting parser, which tries MySQL first
+   and then MariaDB, so a MySQL `Executed_Gtid_Set` and a MariaDB position
+   text are both accepted. Malformed non-empty text fails startup; it does
+   not silently fall through to the MariaDB fallback.
+3. Only when the fifth column is missing, or present but empty, run
+   `SELECT @@GLOBAL.gtid_binlog_pos` and parse it as MariaDB. An empty value
+   is a valid empty GTID_Set, not an error: it yields an empty `GTID_Set` and
+   the reader waits for the first non-empty position instead of failing
+   startup. Only malformed non-empty text fails startup. The reader's main
+   loop waits for the first non-empty position before opening the stream, so
+   an empty snapshot never starts streaming from a bogus position.
 
 MariaDB `SHOW MASTER STATUS` has no `Executed_Gtid_Set`. Current code that
 requires `mysql_num_fields >= 5` and `row[4]` must not be the only path.
