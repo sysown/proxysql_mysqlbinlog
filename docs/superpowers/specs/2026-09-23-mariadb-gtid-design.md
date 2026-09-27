@@ -31,16 +31,24 @@ Out of scope:
 
 ## Formats
 
-MySQL (unchanged): UUID + `:` intervals, optional UUID dashes.
+Two different spellings are in play, and they are not interchangeable.
 
-MariaDB: `domain-server-sequence` with three unsigned decimals, no `:`.
-Sets are comma-separated, as in `@@gtid_binlog_pos` (`0-1-270,1-2-50`).
-Sequence `0` is invalid. Leading zeros (`00-1-1`) are invalid. `domain` and
-`server` are uint32 as in `GTID_EVENT`; anything wider than `UINT32_MAX` is
-invalid rather than truncated.
+*Native server text* is what MariaDB reports and what the reader parses:
+MySQL `uuid:intervals` (UUID dashes optional); MariaDB
+`domain-server-sequence`, three unsigned decimals, **no** `:`. Sets are
+comma-separated, as in `@@gtid_binlog_pos` (`0-1-270,1-2-50`). Sequence `0` is
+invalid. Leading zeros (`00-1-1`) are invalid. `domain` and `server` are uint32
+as in `GTID_EVENT`; anything wider than `UINT32_MAX` is invalid rather than
+truncated.
 
 Detection is per token: `:` → MySQL; `digits-digits-digits` → MariaDB;
 anything else is invalid.
+
+*Wire text* is what the reader sends ProxySQL, and it is always the
+`GTID_Set` serialization described under [GTID_Set and serialization](#gtid_set-and-serialization):
+a MySQL UUID followed by `:intervals`, a MariaDB domain followed by
+`:start-end` (so `ST=0:1-270`, **with** a `:`). The native MariaDB
+`domain-server-sequence` form never appears on the wire.
 
 ## Wire protocol
 

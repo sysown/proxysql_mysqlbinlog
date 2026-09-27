@@ -37,6 +37,8 @@ int main() {
 	ok(!gtid.empty(), "MySQL gtid_executed is non-empty (%s)", gtid.c_str());
 
 	BinlogReaderProcess reader;
+	reader.heartbeat_period_seconds = 1;
+	reader.read_timeout_seconds = 5;
 	auto reader_host = setup_reader(cli, reader);
 	if (reader_host.empty()) {
 		BAIL_OUT("failed to start %s", cli.reader_bin.c_str());

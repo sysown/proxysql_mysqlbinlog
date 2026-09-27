@@ -22,6 +22,8 @@ class BinlogReaderProcess {
 	int         freq_ms = -1;
 	int         batching = -1;
 	long        max_netbuflen = -1;
+	int         heartbeat_period_seconds = -1;
+	int         read_timeout_seconds = -1;
 	bool        foreground = true;
 
 	BinlogReaderProcess() = default;

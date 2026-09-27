@@ -1,6 +1,7 @@
 #ifndef PROXYSQL_MARIADB_REPLICATION_CLIENT_H
 #define PROXYSQL_MARIADB_REPLICATION_CLIENT_H
 
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -14,6 +15,8 @@ struct MariaDBConnectionOptions {
 	std::string user;
 	std::string password;
 	TLSOptions tls;
+	unsigned int heartbeat_period_seconds = 5;
+	unsigned int read_timeout_seconds = 60;
 };
 
 /**
@@ -47,5 +50,57 @@ class MariaDBReplicationClient {
 	struct Impl;
 	Impl* impl_;
 };
+
+/**
+ * Parse a strictly positive, decimal number of seconds.
+ *
+ * Rejects an empty string, any character that is not an ASCII digit (signs,
+ * whitespace, separators, suffixes), values that do not fit in `unsigned int`,
+ * and zero.  The function never throws, so it is safe to use directly on
+ * getopt arguments.
+ */
+bool parse_positive_seconds(const std::string& value, unsigned int* result);
+
+/**
+ * Largest read timeout Connector/C can represent.
+ *
+ * MYSQL_OPT_READ_TIMEOUT is an `unsigned int` in seconds, but the connector
+ * stores it as a millisecond count in a signed `int`, so anything above
+ * INT_MAX / 1000 seconds would wrap and produce a bogus timeout.
+ */
+const unsigned int MAX_REPLICATION_READ_TIMEOUT_SECONDS =
+    static_cast<unsigned int>(INT_MAX) / 1000U;
+
+/**
+ * Reject timeout combinations that would let a silent network partition block
+ * mariadb_rpl_fetch forever.  Both values must be positive, the read timeout
+ * must cover at least three heartbeat periods, and it must stay within
+ * MAX_REPLICATION_READ_TIMEOUT_SECONDS.
+ */
+bool validate_replication_timeouts(unsigned int heartbeat_period_seconds,
+                                   unsigned int read_timeout_seconds);
+
+/**
+ * Build the statement that makes the source emit HEARTBEAT_LOG_EVENT while the
+ * replication stream is idle.  The value is a period in nanoseconds, so an idle
+ * partition surfaces as missing events instead of a blocked read.
+ *
+ * Returns an empty string when the period is zero or would overflow the
+ * nanosecond conversion.  The result only ever contains a formatted integer, so
+ * there is no injection surface.
+ */
+std::string heartbeat_statement(unsigned int heartbeat_period_seconds);
+
+/**
+ * Pick the most informative message for a failed replication operation.
+ *
+ * mariadb_rpl_fetch() signals a read timeout by returning NULL and leaving the
+ * replication error empty, so the connector error is the only place the real
+ * cause (for example CR_SERVER_LOST) is reported.  A non-empty replication
+ * message always wins; the connector message is only used as a fallback.  When
+ * neither is available the result is "unknown replication error".
+ */
+std::string replication_error_detail(const char* rpl_message,
+                                     const char* connector_message);
 
 #endif  // PROXYSQL_MARIADB_REPLICATION_CLIENT_H
