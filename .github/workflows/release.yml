@@ -309,9 +309,15 @@ jobs:
 
       - name: Smoke test ARM64 runtime image
         run: |
+          # `-v` prints the version and returns 1, so it cannot be the last
+          # command under `sh -e`. Pipe it into grep instead: that asserts the
+          # binary runs AND reports the expected release version, and the
+          # pipeline's status is grep's. Without the version match this would
+          # also pass on a stale binary left in the image.
           docker run --rm --entrypoint sh \
+            --env EXPECTED_VERSION="${RELEASE_TAG}" \
             "${IMAGE_PREFIX}:staging-${RELEASE_TAG}-${{ matrix.distro }}-arm64" \
-            -ec 'test "$(dpkg --print-architecture)" = arm64; command -v proxysql_binlog_reader; proxysql_binlog_reader -v'
+            -ec 'test "$(dpkg --print-architecture)" = arm64; command -v proxysql_binlog_reader; proxysql_binlog_reader -v | grep -q "^proxysql_binlog_reader version ${EXPECTED_VERSION}"'
 
   # ---------------------------------------------------------------------------
   # 5. Publish: push verified staging images, then create stable manifests.
