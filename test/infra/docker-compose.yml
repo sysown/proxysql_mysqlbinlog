@@ -34,6 +34,29 @@ services:
         soft: 1048576
         hard: 1048576
 
+  mariadb:
+    image: mariadb:10.11
+    container_name: binlog-reader-mariadb
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    command: >
+      --log-bin=mysql-bin
+      --server-id=11
+      --binlog-format=ROW
+      --gtid-strict-mode=1
+      --bind-address=0.0.0.0
+    ports:
+      # Loopback-only: the test database is reachable from the host, never
+      # from outside it.
+      - "127.0.0.1:3311:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
   runner:
     image: proxysql-binlog-reader-runner:latest
     build:
@@ -42,6 +65,8 @@ services:
     container_name: binlog-reader-runner
     depends_on:
       mysql:
+        condition: service_healthy
+      mariadb:
         condition: service_healthy
     volumes:
       - ../../:/opt/proxysql_mysqlbinlog
@@ -56,6 +81,9 @@ services:
       MYSQL_SSL_MODE: REQUIRED
       MYSQL_SSL_VERIFY_SERVER_CERT: "0"
       MYSQL_VERSIONS: "${MYSQL_VERSIONS:-57 80 84 90 94}"
+      MARIADB_HOST: mariadb
+      MARIADB_PORT: "3306"
+      MARIADB_SSL_MODE: DISABLED
       # Use the host-built reader binary visible through the bind mount.
       BINLOG_READER_BIN: /opt/proxysql_mysqlbinlog/proxysql_binlog_reader
       # Per-run log directory, populated by start-test.sh.

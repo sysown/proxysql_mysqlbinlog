@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace {
@@ -71,6 +72,70 @@ bool parse_positive_trxid(const std::string& input, trxid_t* out) {
 	if (value == 0)
 		return false;
 	*out = static_cast<trxid_t>(value);
+	return true;
+}
+
+bool is_unsigned_decimal_no_leading_zeros(const std::string& input) {
+	if (input.empty())
+		return false;
+	if (input.size() > 1 && input[0] == '0')
+		return false;
+	for (char c : input) {
+		if (!std::isdigit(static_cast<unsigned char>(c)))
+			return false;
+	}
+	return true;
+}
+
+// MariaDB carries domain_id and server_id as uint32, both in GTID_EVENT and in
+// the snapshot text, so anything wider cannot be represented without truncation.
+bool parse_uint32_field(const std::string& input, uint32_t* out) {
+	if (!out)
+		return false;
+
+	uint64_t value = 0;
+	for (char c : input) {
+		if (!std::isdigit(static_cast<unsigned char>(c)))
+			return false;
+		const uint64_t digit = static_cast<uint64_t>(c - '0');
+		if (value > (static_cast<uint64_t>(UINT32_MAX) - digit) / 10)
+			return false;
+		value = value * 10 + digit;
+	}
+
+	*out = static_cast<uint32_t>(value);
+	return true;
+}
+
+bool parse_mariadb_gtid_token(const std::string& token, GTID_Set* set) {
+	const size_t first = token.find('-');
+	if (first == std::string::npos)
+		return false;
+	const size_t second = token.find('-', first + 1);
+	if (second == std::string::npos || token.find('-', second + 1) != std::string::npos)
+		return false;
+	if (first == 0 || second == first + 1 || second == token.size() - 1)
+		return false;
+
+	const std::string domain = token.substr(0, first);
+	const std::string server = token.substr(first + 1, second - first - 1);
+	const std::string sequence = token.substr(second + 1);
+	if (!is_unsigned_decimal_no_leading_zeros(domain) ||
+	    !is_unsigned_decimal_no_leading_zeros(server) ||
+	    !is_unsigned_decimal_no_leading_zeros(sequence))
+		return false;
+
+	trxid_t seq = 0;
+	if (!parse_positive_trxid(sequence, &seq))
+		return false;
+	uint32_t domain_id = 0;
+	uint32_t server_id = 0;
+	if (!parse_uint32_field(domain, &domain_id) ||
+	    !parse_uint32_field(server, &server_id))
+		return false;
+	const std::string domain_key = std::to_string(domain_id);
+	set->add(domain_key, trxid_t(1), seq);
+	set->set_server_id(domain_key, server_id);
 	return true;
 }
 
@@ -154,6 +219,59 @@ bool parse_mysql_gtid_executed(const std::string& encoded, GTID_Set* out) {
 
 	*out = parsed;
 	return true;
+}
+
+bool parse_mariadb_gtid_executed(const std::string& encoded, GTID_Set* out) {
+	if (!out)
+		return false;
+
+	GTID_Set parsed;
+	// MariaDB reports an empty @@gtid_binlog_pos until its first GTID. That is a
+	// valid empty GTID_Set, not a malformed value: the reader's main loop waits
+	// for a non-empty position before opening the stream. Only malformed
+	// non-empty text fails.
+	if (encoded.empty()) {
+		*out = parsed;
+		return true;
+	}
+
+	size_t set_start = 0;
+	while (set_start < encoded.size()) {
+		const size_t set_end = encoded.find(',', set_start);
+		const std::string entry = trim_separator_whitespace(encoded.substr(
+		    set_start, set_end == std::string::npos ? std::string::npos : set_end - set_start));
+		if (!parse_mariadb_gtid_token(entry, &parsed))
+			return false;
+		if (set_end == std::string::npos)
+			break;
+		set_start = set_end + 1;
+		if (set_start == encoded.size())
+			return false;
+	}
+
+	*out = parsed;
+	return true;
+}
+
+bool parse_gtid_executed(const std::string& encoded, GTID_Set* out) {
+	if (encoded.find(':') != std::string::npos)
+		return parse_mysql_gtid_executed(encoded, out);
+	return parse_mariadb_gtid_executed(encoded, out);
+}
+
+bool snapshot_gtid_set(const char* executed_gtid_set_or_null,
+                       const std::string& mariadb_binlog_pos,
+                       GTID_Set* out) {
+	if (!out)
+		return false;
+	if (executed_gtid_set_or_null)
+		return parse_mysql_gtid_executed(executed_gtid_set_or_null, out);
+	return parse_mariadb_gtid_executed(mariadb_binlog_pos, out);
+}
+
+bool is_mariadb_server(const char* server_version) {
+	return server_version != nullptr
+		&& std::strstr(server_version, "MariaDB") != nullptr;
 }
 
 bool parse_mysql_snapshot_position(const char* filename, const char* encoded_position,

@@ -213,13 +213,14 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 	Result result(mysql_store_result(impl_->mysql));
 	if (!result.get())
 		throw connector_error("cannot store binary log status", impl_->mysql);
-	if (mysql_num_fields(result.get()) < 5)
+	const unsigned int nfields = mysql_num_fields(result.get());
+	if (nfields < 2)
 		throw std::runtime_error(std::string(query) +
-		                         " returned fewer than five columns");
+		                         " returned fewer than two columns");
 	MYSQL_ROW row = mysql_fetch_row(result.get());
-	if (!row || !row[0] || !row[1] || !row[4])
+	if (!row || !row[0] || !row[1])
 		throw std::runtime_error(std::string(query) +
-		                         " returned no File, Position, or Executed_Gtid_Set");
+		                         " returned no File or Position");
 	if (!*row[0])
 		throw std::runtime_error(std::string(query) +
 		                         " returned an empty binary log File");
@@ -230,9 +231,27 @@ GTID_Set MariaDBReplicationClient::snapshot() {
 		                         " returned an invalid binary log Position");
 
 	GTID_Set set;
-	if (!parse_mysql_gtid_executed(row[4], &set))
-		throw std::runtime_error(std::string(query) +
-		                         " returned an invalid Executed_Gtid_Set");
+	if (nfields >= 5) {
+		// A present Executed_Gtid_Set column is auto-detected: MySQL reports
+		// 'uuid:intervals', MariaDB reports 'domain-server-sequence'. An empty
+		// column is ambiguous (no GTIDs executed) and stays an empty set.
+		const char* fifth = row[4] ? row[4] : "";
+		if (*fifth != '\0' && !parse_gtid_executed(fifth, &set))
+			throw std::runtime_error(std::string(query) +
+			                         " returned an invalid Executed_Gtid_Set");
+	} else {
+		if (mysql_query(impl_->mysql, "SELECT @@GLOBAL.gtid_binlog_pos"))
+			throw connector_error("cannot read gtid_binlog_pos", impl_->mysql);
+		Result pos_result(mysql_store_result(impl_->mysql));
+		if (!pos_result.get())
+			throw connector_error("cannot store gtid_binlog_pos", impl_->mysql);
+		MYSQL_ROW pos_row = mysql_fetch_row(pos_result.get());
+		std::string mariadb_pos;
+		if (pos_row && pos_row[0])
+			mariadb_pos = pos_row[0];
+		if (!snapshot_gtid_set(nullptr, mariadb_pos, &set))
+			throw std::runtime_error("invalid gtid_binlog_pos");
+	}
 
 	impl_->snapshot_filename = row[0];
 	impl_->snapshot_position = position;
@@ -258,6 +277,11 @@ void MariaDBReplicationClient::open_stream() {
 	if (mysql_query(impl_->mysql,
 	                "SET @master_binlog_checksum = @@global.binlog_checksum"))
 		throw connector_error("cannot enable binary log checksums", impl_->mysql);
+	// MariaDB-only handshake hint; on MySQL the round trip is pure overhead and
+	// the user variable is meaningless there.
+	if (is_mariadb_server(impl_->mysql->server_version)
+		&& mysql_query(impl_->mysql, "SET @mariadb_slave_capability=4"))
+		throw connector_error("cannot set MariaDB replica capability", impl_->mysql);
 
 	impl_->rpl = mariadb_rpl_init(impl_->mysql);
 	if (!impl_->rpl)
@@ -299,7 +323,12 @@ void MariaDBReplicationClient::stream_events(
 		if (event->event_type == GTID_LOG_EVENT && on_gtid) {
 			on_gtid(mysql_uuid_from_bytes(
 			            reinterpret_cast<const unsigned char*>(event->event.gtid_log.source_id)),
-		        event->event.gtid_log.sequence_nr);
+			        event->event.gtid_log.sequence_nr);
+		}
+		if (event->event_type == GTID_EVENT && on_gtid) {
+			const uint32_t domain = event->event.gtid.domain_id;
+			const uint64_t seq = event->event.gtid.sequence_nr;
+			on_gtid(std::to_string(domain), seq);
 		}
 	}
 	mariadb_free_rpl_event(event);

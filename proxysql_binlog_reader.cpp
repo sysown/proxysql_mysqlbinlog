@@ -774,12 +774,19 @@ void bench_gtid_callback(const std::string& uuid, uint64_t trx_id) {
 		return;
 	}
 
+	if (!curpos.add(uuid, trx_id)) {
+		// the sequence is already part of curpos (snapshot watermark, or a
+		// re-delivered GTID). ST= already advertises it, so there is nothing
+		// to update and no incremental message to queue.
+		pthread_mutex_unlock(&pos_mutex);
+		return;
+	}
+
 	strncpy(last_server_uuid, uuid.c_str(), sizeof(last_server_uuid) - 1);
 	last_server_uuid[sizeof(last_server_uuid) - 1] = 0;
 	last_trx_id = trx_id;
 	server_uuids.push_back(strdup(uuid.c_str()));
 	trx_ids.push_back(trx_id);
-	curpos.add(uuid, trx_id);
 	pthread_mutex_unlock(&pos_mutex);
 	if (!update_freq_ms && client_update_ready.load(std::memory_order_acquire)) {
 		ev_async_send(loop, &async);

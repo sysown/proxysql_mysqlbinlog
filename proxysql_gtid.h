@@ -4,6 +4,7 @@
 #define PROXYSQL_GTID
 // highly inspired by libslave
 // https://github.com/vozbu/libslave/
+#include <cstdint>
 #include <list>
 #include <string>
 #include <unordered_map>
@@ -38,6 +39,7 @@ class TrxId_Interval {
 class GTID_Set {
 	public:
 		std::unordered_map<std::string, std::list<TrxId_Interval>> map;
+		std::unordered_map<std::string, uint32_t> last_server_id;
 
 	public:
 		GTID_Set();
@@ -51,8 +53,11 @@ class GTID_Set {
 		bool add(const std::string& uuid, const char *s);
 		bool add(const std::string& uuid, const std::string &s);
 
+		void set_server_id(const std::string& id, uint32_t server_id);
+		uint32_t get_server_id(const std::string& id) const;
 		const bool has_gtid(const std::string& uuid, const trxid_t trxid);
 		const std::string to_string(void);
+		const std::string to_display_string(void);
 };
 
 #endif /* PROXYSQL_GTID */
