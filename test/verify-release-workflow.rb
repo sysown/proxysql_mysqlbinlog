@@ -398,6 +398,18 @@ def assert_release_arm64_smoke_contract(release)
   unless smoke_command.include?("dpkg --print-architecture") && smoke_command.include?("arm64") && smoke_command.include?("proxysql_binlog_reader -v")
     fail("release ARM64 smoke must verify the native package architecture and reader executable")
   end
+  # `proxysql_binlog_reader -v` prints the version and returns 1, so it must not
+  # be the last command in the `sh -e` script: that makes the check fail on
+  # every image and blocks publishing entirely. Require the version assertion to
+  # be a pipeline, so its status comes from grep instead. This is also what
+  # catches a stale binary left in the image, which a bare exit-status check
+  # cannot.
+  if smoke_command.match?(/;\s*proxysql_binlog_reader -v'\s*$/)
+    fail("release ARM64 smoke must not end with a bare `proxysql_binlog_reader -v`: the reader returns 1 for -v, so under `sh -e` the check always fails")
+  end
+  unless smoke_command.include?("| grep -q") && smoke_command.include?("EXPECTED_VERSION")
+    fail("release ARM64 smoke must assert the reader's reported version through a pipeline")
+  end
 end
 
 
