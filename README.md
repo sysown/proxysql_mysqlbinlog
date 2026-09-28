@@ -103,11 +103,38 @@ docker run -d --name binlog-reader -p 6020:6020 \
 
 ### HowTo
 
-on each MySQL server instance run the `proxysql_binlog_reader`, e.g:
+on each MySQL or MariaDB server instance run the `proxysql_binlog_reader`, e.g:
 
 ```sh
 ./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f
 ```
+
+#### MariaDB backends
+
+The reader also supports MariaDB. No flag is needed: the backend is detected
+from the server version banner, and the snapshot is read from
+`@@gtid_binlog_pos` instead of the MySQL `Executed_Gtid_Set` column, which
+MariaDB does not provide.
+
+```sh
+./proxysql_binlog_reader -h 127.0.0.1 -u root -p rootpass -P 3306 -l 6020 -f \
+  --ssl-mode=DISABLED
+```
+
+MariaDB reports positions as `domain-server-sequence` (`0-1-270`), but that
+native spelling is **not** what the reader sends. On the wire a MariaDB id is
+`domain:start-end` (`0:1-270`), produced by `GTID_Set::to_string()`. A MySQL
+UUID keeps its dashed form followed by `:intervals`. The two spellings are not
+interchangeable, so do not parse a position out of `@@gtid_binlog_pos` and
+expect it to match the reader's output.
+
+A MariaDB domain id is a canonical decimal `uint32`. The reader rejects a
+non-canonical spelling, so `0` and `00` never name the same domain, and a value
+above `UINT32_MAX` fails rather than being truncated.
+
+MariaDB reports an empty `@@gtid_binlog_pos` until its first GTID. That is a
+valid empty position, not an error: the reader waits for the first non-empty
+position before it opens the stream, rather than failing at startup.
 
 #### TLS connections
 
@@ -187,8 +214,9 @@ Container images expose the same TLS settings through `SSL_MODE` and
 #### Integration testing
 
 The Docker TAP suite uses dbdeployer sandboxes for MySQL `5.7`, `8.0`, `8.4`,
-`9.0`, and `9.4`. After building the reader and TAP tests, run one version
-during local iteration with:
+`9.0`, and `9.4`, and a separate MariaDB `10.11` service for the MariaDB GTID
+snapshot and stream tests. After building the reader and TAP tests, run one
+version during local iteration with:
 
 ```sh
 MYSQL_VERSIONS=84 test/infra/start-test.sh
